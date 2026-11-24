@@ -483,7 +483,10 @@ public interface BlobStore extends AutoCloseable {
      * throws by {@link #blobMetadata}'s rules.  The request's range rides
      * verbatim as the Range header form, e.g. bytes=0-9; a non-null
      * versionId is only meaningful on a store that {@link
-     * #supportsVersioning}.
+     * #supportsVersioning}.  A request carrying {@link
+     * SdkRequests#ONLY_IF_PUBLIC_READ}, here or to {@link #blobMetadata}, is
+     * refused with a 403 by a store able to tell that the object it reads
+     * is not public-read.
      */
     ResponseInputStream<GetObjectResponse> getBlob(GetObjectRequest request);
 

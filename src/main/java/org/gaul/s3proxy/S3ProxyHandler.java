@@ -108,6 +108,7 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.MD5;
 import org.gaul.s3proxy.blobstore.ReservedNames;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.gaul.s3proxy.checksum.BodyLimitInputStream;
@@ -1638,7 +1639,7 @@ public class S3ProxyHandler {
                 authorize(ctx, session, request, path,
                         S3Operation.GET_OBJECT);
                 handleGetBlob(request, response, blobStore, path[1],
-                        path[2]);
+                        path[2], /*onlyIfPublicRead=*/ false);
                 return;
             }
         }
@@ -1652,7 +1653,7 @@ public class S3ProxyHandler {
                 authorize(ctx, session, request, path,
                         S3Operation.HEAD_OBJECT);
                 handleBlobMetadata(request, response, blobStore, path[1],
-                        path[2]);
+                        path[2], /*onlyIfPublicRead=*/ false);
                 return;
             }
         }
@@ -2359,8 +2360,14 @@ public class S3ProxyHandler {
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.GET_OBJECT);
+                // The check above answered for the object the key named
+                // then, and the read below opens the one it names by then:
+                // a write landing in between replaces a public object with
+                // a private one, which this would go on to serve.  So the
+                // read says that only a public-read object may answer it,
+                // and a store able to judge the object it opens does.
                 handleGetBlob(request, response, blobStore, containerName,
-                        blobName);
+                        blobName, /*onlyIfPublicRead=*/ true);
                 return;
             }
         }
@@ -2385,8 +2392,9 @@ public class S3ProxyHandler {
                     throw new S3ProxyException(S3ErrorCode.ACCESS_DENIED);
                 }
                 setOperation(ctx, S3Operation.HEAD_OBJECT);
+                // marked for the reason the GET above is
                 handleBlobMetadata(request, response, blobStore, containerName,
-                        blobName);
+                        blobName, /*onlyIfPublicRead=*/ true);
             }
             return;
         }
@@ -4336,7 +4344,7 @@ public class S3ProxyHandler {
     private void handleBlobMetadata(HttpServletRequest request,
             HttpServletResponse response,
             BlobStore blobStore, String containerName,
-            String blobName) throws IOException {
+            String blobName, boolean onlyIfPublicRead) throws IOException {
         checkNoWriteEncryptionHeaders(request);
         var headRequest = HeadObjectRequest.builder()
                 .bucket(containerName)
@@ -4352,6 +4360,9 @@ public class S3ProxyHandler {
         }
         if (checksumModeEnabled(request)) {
             headRequest.checksumMode(ChecksumMode.ENABLED);
+        }
+        if (onlyIfPublicRead) {
+            headRequest.overrideConfiguration(SdkRequests.ONLY_IF_PUBLIC_READ);
         }
         HeadObjectResponse metadata = blobStore.blobMetadata(
                 headRequest.build());
@@ -5413,7 +5424,7 @@ public class S3ProxyHandler {
 
     private void handleGetBlob(HttpServletRequest request,
             HttpServletResponse response, BlobStore blobStore,
-            String containerName, String blobName)
+            String containerName, String blobName, boolean onlyIfPublicRead)
             throws IOException {
         checkNoWriteEncryptionHeaders(request);
         if (request.getParameter("partNumber") != null) {
@@ -5425,6 +5436,8 @@ public class S3ProxyHandler {
                             .key(blobName)
                             .versionId(blobStore.supportsVersioning() ?
                                     request.getParameter("versionId") : null)
+                            .overrideConfiguration(onlyIfPublicRead ?
+                                    SdkRequests.ONLY_IF_PUBLIC_READ : null)
                             .sseCustomerAlgorithm(request.getHeader(
                                     AwsHttpHeaders
                                     .SERVER_SIDE_ENCRYPTION_CUSTOMER_ALGORITHM))
@@ -5439,6 +5452,9 @@ public class S3ProxyHandler {
         var getRequest = GetObjectRequest.builder()
                 .bucket(containerName)
                 .key(blobName);
+        if (onlyIfPublicRead) {
+            getRequest.overrideConfiguration(SdkRequests.ONLY_IF_PUBLIC_READ);
+        }
 
         if (blobStore.supportsVersioning()) {
             getRequest.versionId(request.getParameter("versionId"));

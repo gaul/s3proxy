@@ -24,6 +24,9 @@ import com.google.common.hash.HashCode;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
+import software.amazon.awssdk.awscore.AwsRequest;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
+import software.amazon.awssdk.core.interceptor.ExecutionAttribute;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -36,9 +39,35 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
  * emulate ranges parse it with {@link #parseRange}.
  */
 public final class SdkRequests {
+    private static final ExecutionAttribute<Boolean> ONLY_IF_PUBLIC_READ_MARK =
+            new ExecutionAttribute<>("S3ProxyOnlyIfPublicRead");
+
+    /**
+     * Rides on a read made for a caller who presented no credentials, as
+     * its override configuration: only an object granting AllUsers READ may
+     * answer it.  The frontend asks {@link BlobStore#getBlobAccess} first,
+     * but that and the read are two calls, and the object under a key can
+     * be replaced between them by one with an ACL of its own.  A store that
+     * can judge the object it opens therefore refuses such a read with a
+     * 403 unless that object is public-read; a store that cannot leaves the
+     * frontend's answer standing.  An execution attribute never reaches the
+     * wire, and survives a middleware's {@code toBuilder()}.
+     */
+    public static final AwsRequestOverrideConfiguration ONLY_IF_PUBLIC_READ =
+            AwsRequestOverrideConfiguration.builder()
+                    .putExecutionAttribute(ONLY_IF_PUBLIC_READ_MARK, true)
+                    .build();
 
     private SdkRequests() {
         throw new AssertionError("intentionally not implemented");
+    }
+
+    /** Whether a read carries {@link #ONLY_IF_PUBLIC_READ}. */
+    public static boolean onlyIfPublicRead(AwsRequest request) {
+        return request.overrideConfiguration()
+                .flatMap(configuration -> configuration.executionAttributes()
+                        .getOptionalAttribute(ONLY_IF_PUBLIC_READ_MARK))
+                .orElse(false);
     }
 
     /**

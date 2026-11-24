@@ -26,6 +26,7 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.CopyOption;
 import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.DirectoryStream;
@@ -61,6 +62,8 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -279,6 +282,21 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * could, which is why only the transient store offers versioning.
      */
     private final Object versionLock = new Object();
+    /**
+     * Keeps a key naming one file for as long as a read takes to look at
+     * it.  A read asks the path for the file's attributes and then opens
+     * the path, and a file published between the two is the one opened: the
+     * read then answers with one object's metadata and another's bytes, and
+     * a read made for a caller who must find the object public-read judges
+     * the permissions of a file other than the one it serves.  So a read
+     * holds the shared side from its first look until the file is open, and
+     * whatever makes a file appear under a key -- a put's rename or link,
+     * the promotion of an older version -- holds the exclusive side for
+     * that one call.  Readers do not wait on one another, nor on a write
+     * still receiving its payload.  As with versionLock, this closes it
+     * within one process and nothing here could across several.
+     */
+    private final ReadWriteLock publishLock = new ReentrantReadWriteLock();
 
     protected AbstractNio2BlobStore(Path root) {
         this.root = root;
@@ -760,7 +778,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             GetObjectRequest options, boolean openStream) {
         for (int attempt = 0; ; ++attempt) {
             try {
-                return readBlob(container, key, options, openStream);
+                // The shared side of publishLock, from the first look at
+                // the key's path until its file is open.
+                publishLock.readLock().lock();
+                try {
+                    return readBlob(container, key, options, openStream);
+                } finally {
+                    publishLock.readLock().unlock();
+                }
             } catch (RuntimeException re) {
                 if (attempt == ATTRIBUTE_READ_ATTEMPTS ||
                         !(re.getCause() instanceof
@@ -816,6 +841,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             //
             // Closing this means keeping the metadata where the bytes are, so
             // that one read of one open file answers for both.  See #490.
+            // Until then publishLock, which the caller holds, keeps a put
+            // made through this process from landing in between.
             var attr = Files.readAttributes(path, BasicFileAttributes.class);
             var isDirectory = attr.isDirectory();
             var xattrs = safeGetXattrs(path);
@@ -902,6 +929,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     var value = requireNonNull(readStringAttributeIfPresent(view, attributes, attribute));
                     userMetadata.put(attribute.substring(XATTR_USER_METADATA_PREFIX.length()), value);
                 }
+            }
+
+            // A read made for a caller the object's ACL must admit is judged
+            // here rather than by whoever asked getBlobAccess beforehand:
+            // that answered for the file the key named then, and this is
+            // the file about to be read.  Before the conditions below,
+            // which would answer with its ETag.
+            if (SdkRequests.onlyIfPublicRead(options) &&
+                    blobAccess(path) != ObjectCannedACL.PUBLIC_READ) {
+                throw returnResponseException(403);
             }
 
             // Evaluate conditional headers and range bounds before opening
@@ -1358,6 +1395,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // REPLACE_EXISTING, whereas link(2) fails if it exists.  The
                 // link shares the inode, so the xattrs and permissions
                 // already written to tmpPath carry over.
+                publishLock.writeLock().lock();
                 try {
                     intoParent(tmpPath, path, () -> Files.createLink(path, tmpPath));
                 } catch (FileAlreadyExistsException faee) {
@@ -1370,6 +1408,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                     intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
                             StandardCopyOption.ATOMIC_MOVE));
+                } finally {
+                    publishLock.writeLock().unlock();
                 }
                 // Nothing current was displaced: the condition held only
                 // because the key had none.  It may still have a null
@@ -1408,7 +1448,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             blob.getMetadata().name(), versionId,
                             /*replacing=*/ true);
                     try {
-                        intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
+                        intoParent(tmpPath, path, () -> publish(tmpPath, path,
                                 StandardCopyOption.ATOMIC_MOVE,
                                 StandardCopyOption.REPLACE_EXISTING));
                     } catch (IOException | RuntimeException e) {
@@ -1423,7 +1463,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 published = true;
                 return new PutResult(storedETag, versionId);
             }
-            intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
+            intoParent(tmpPath, path, () -> publish(tmpPath, path,
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING));
 
@@ -1544,6 +1584,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
         }
         return false;
+    }
+
+    /**
+     * Moves a file to the path of the key it becomes the object of, while
+     * no read is between looking at that path and opening it.
+     */
+    private void publish(Path source, Path target, CopyOption... options)
+            throws IOException {
+        publishLock.writeLock().lock();
+        try {
+            Files.move(source, target, options);
+        } finally {
+            publishLock.writeLock().unlock();
+        }
     }
 
     /**
@@ -2000,7 +2054,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         String key = request.key();
         Blob blob = getBlobInternal(container, key,
                 GetObjectRequest.builder().bucket(container).key(key)
-                        .versionId(request.versionId()).build(),
+                        .versionId(request.versionId())
+                        // what SdkRequests.ONLY_IF_PUBLIC_READ rides on
+                        .overrideConfiguration(
+                                request.overrideConfiguration().orElse(null))
+                        .build(),
                 /*openStream=*/ false);
         if (blob == null) {
             throw S3Exceptions.noSuchKey(container, key, "no such object");
@@ -2595,18 +2653,26 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             path = containerPath;
             missing = nske;
         }
-
-        Set<PosixFilePermission> permissions;
+        ObjectCannedACL access;
         try {
-            permissions = Files.getPosixFilePermissions(path);
-        } catch (UnsupportedOperationException uoe) {
-            // Windows/SMB/other non-POSIX: default to PRIVATE
-            permissions = Set.of();
+            access = blobAccess(path);
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
         if (missing != null) {
             throw missing;
+        }
+        return access;
+    }
+
+    /** The access a file's permissions spell. */
+    private static ObjectCannedACL blobAccess(Path path) throws IOException {
+        Set<PosixFilePermission> permissions;
+        try {
+            permissions = Files.getPosixFilePermissions(path);
+        } catch (UnsupportedOperationException uoe) {
+            // Windows/SMB/other non-POSIX: default to PRIVATE
+            return ObjectCannedACL.PRIVATE;
         }
         return permissions.contains(PosixFilePermission.OTHERS_READ) ?
                 ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
@@ -4177,7 +4243,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * <p>A caller that is {@code replacing} the current version goes on to
      * rename the new one over {@code path}.  For it the current version is
      * given its archived name as a second link and left where it is, so
-     * that the key always has something to read: readers take no lock, and
+     * that the key always has something to read: readers do not wait, and
      * moving the file aside first answered them 404 until the new one
      * arrived.  The link is returned for the caller to remove should that
      * rename fail; null says nothing was linked, either because there was
@@ -4249,7 +4315,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             return;
         }
         Files.createDirectories(requireNonNull(path.getParent()));
-        Files.move(newest.path(), path, StandardCopyOption.ATOMIC_MOVE);
+        publish(newest.path(), path, StandardCopyOption.ATOMIC_MOVE);
     }
 
     /**

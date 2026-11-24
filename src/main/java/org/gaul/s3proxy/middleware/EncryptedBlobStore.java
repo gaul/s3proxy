@@ -872,7 +872,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         String container = request.bucket();
         String stored = blobNameWithSuffix(container, request.key());
-        HeadObjectResponse head = delegate().blobMetadata(container, stored);
+        HeadObjectResponse head = delegate().blobMetadata(
+                HeadObjectRequest.builder()
+                        .bucket(container)
+                        .key(stored)
+                        // what SdkRequests.ONLY_IF_PUBLIC_READ rides on
+                        .overrideConfiguration(
+                                request.overrideConfiguration().orElse(null))
+                        .build());
         // report the plaintext size only for an encrypted blob that is
         // not a multipart stub
         if (isEncrypted(stored) &&
