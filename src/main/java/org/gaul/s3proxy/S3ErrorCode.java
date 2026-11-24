@@ -124,6 +124,8 @@ public enum S3ErrorCode {
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    SLOW_DOWN(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+            "Please reduce your request rate."),
     UNEXPECTED_CONTENT(HttpServletResponse.SC_BAD_REQUEST,
             "This request does not support content"),
     VALIDATION_ERROR(HttpServletResponse.SC_BAD_REQUEST,

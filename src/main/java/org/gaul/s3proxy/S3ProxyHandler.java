@@ -534,6 +534,8 @@ public class S3ProxyHandler {
     private final XMLOutputFactory xmlOutputFactory =
             XMLOutputFactory.newInstance();
     private BlobStoreLocator blobStoreLocator;
+    private PreAuthBodyBudget preAuthBodyBudget =
+            PreAuthBodyBudget.unlimited();
     @Nullable private final StsHandler stsHandler;
     // TODO: hack to allow per-request anonymous access
     private final BlobStore defaultBlobStore;
@@ -1313,6 +1315,8 @@ public class S3ProxyHandler {
                             throw new S3ProxyException(
                                     S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED);
                         }
+                        // held before anything has said who sent it
+                        is = preAuthBodyBudget.track(request, is);
                         if (declaredLength >= 0 &&
                                 declaredLength <= MAX_BUFFERED_PAYLOAD) {
                             payload = is.readNBytes((int) declaredLength);
@@ -6398,7 +6402,10 @@ public class S3ProxyHandler {
         // returns no more than one HTTP chunk holds, so a body framed a byte
         // to a chunk would hold a buffer for each byte.  Fill every buffer
         // instead, so that what is held is what is counted.
-        parser.parse(new InputStreamContentSource(is,
+        // A form is read whole before its policy is checked, held before
+        // anything has said who sent it.
+        InputStream tracked = preAuthBodyBudget.track(request, is);
+        parser.parse(new InputStreamContentSource(tracked,
                 ByteBufferPool.SIZED_NON_POOLING) {
             @Override
             protected int fillBufferFromInputStream(InputStream inputStream,
@@ -6684,6 +6691,10 @@ public class S3ProxyHandler {
     private static S3ProxyException multipartParseFailure(
             CompletionException ce) {
         Throwable cause = ce.getCause();
+        if (cause instanceof S3ProxyException s3e) {
+            // the pre-auth body budget refused the read
+            return s3e;
+        }
         if (cause instanceof IllegalStateException) {
             return new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED,
                     cause);
@@ -9381,6 +9392,15 @@ public class S3ProxyHandler {
 
     public final void setBlobStoreLocator(BlobStoreLocator locator) {
         this.blobStoreLocator = locator;
+    }
+
+    final void setPreAuthBodyBudget(PreAuthBodyBudget budget) {
+        this.preAuthBodyBudget = budget;
+    }
+
+    /** Gives back what the request's body took from the pre-auth budget. */
+    final void releasePreAuthBody(HttpServletRequest request) {
+        preAuthBodyBudget.release(request);
     }
 
     private static boolean validateIpAddress(String string) {

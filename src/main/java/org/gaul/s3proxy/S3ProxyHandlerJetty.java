@@ -83,7 +83,14 @@ final class S3ProxyHandlerJetty extends HttpServlet {
 
         try (InputStream is = request.getInputStream()) {
 
-            handler.doHandle(request, request, response, is, ctx);
+            try {
+                handler.doHandle(request, request, response, is, ctx);
+            } finally {
+                // As soon as the body is no longer held, and before an
+                // error is written below, so that a client acting on that
+                // error is not refused for this request's share.
+                handler.releasePreAuthBody(request);
+            }
             handler.drainUnreadBodyAfterResponse(request);
         } catch (IllegalArgumentException iae) {
             logger.debug("IllegalArgumentException:", iae);

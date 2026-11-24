@@ -54,6 +54,22 @@ public final class S3ProxyConstants {
             "s3proxy.keystore-password";
     public static final String PROPERTY_JETTY_MAX_THREADS =
             "s3proxy.jetty.max-threads";
+    /**
+     * Whether requests run on virtual threads where the runtime has them,
+     * Java 21 and later; true by default.  Jetty's own threads stay
+     * platform threads, bounded by {@link #PROPERTY_JETTY_MAX_THREADS}.
+     */
+    public static final String PROPERTY_JETTY_VIRTUAL_THREADS =
+            "s3proxy.jetty.virtual-threads";
+    /**
+     * The most bytes of request bodies held at once before their requests
+     * are authenticated: form POSTs and V4 requests signing a digest of
+     * their body.  A read past it is answered 503 SlowDown.  By default a
+     * quarter of the heap, and never less than
+     * {@link #PROPERTY_V4_MAX_NON_CHUNKED_REQUEST_SIZE}.
+     */
+    public static final String PROPERTY_PRE_AUTH_BODY_BUDGET =
+            "s3proxy.pre-auth-body-budget";
 
     /** Request attributes. */
     public static final String ATTRIBUTE_QUERY_ENCODING = "queryEncoding";

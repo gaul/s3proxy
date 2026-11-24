@@ -46,6 +46,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.Slf4jRequestLogWriter;
 import org.eclipse.jetty.server.handler.GracefulHandler;
+import org.eclipse.jetty.util.VirtualThreads;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.gaul.s3proxy.auth.AuthenticationType;
@@ -116,6 +117,19 @@ public final class S3Proxy {
 
         var pool = new QueuedThreadPool(builder.jettyMaxThreads);
         pool.setName("S3Proxy-Jetty");
+        // A request whose body trickles in holds its thread for as long as
+        // its sender likes, and some bodies are read before anything has
+        // authenticated them: a few hundred slow connections held every
+        // pooled thread, and the proxy stopped answering.  A virtual thread
+        // waiting on a read costs a few kilobytes and no pooled thread, so
+        // requests run on them where the runtime has them; Jetty keeps its
+        // own selector and acceptor threads in the pool.  What the waiting
+        // bodies hold is bounded by the pre-auth body budget instead.
+        if (builder.jettyVirtualThreads && VirtualThreads.areSupported()) {
+            pool.setVirtualThreadsExecutor(
+                    VirtualThreads.getNamedVirtualThreadsExecutor(
+                            "S3Proxy-Jetty-virtual-"));
+        }
         server = new Server(pool);
 
         var httpConfiguration = new HttpConfiguration();
@@ -197,6 +211,10 @@ public final class S3Proxy {
                 builder.servicePath, builder.maximumTimeSkew, metrics,
                 builder.stsEnabled ?
                         new StsHandler(builder.stsMaxDuration) : null);
+        handler.getHandler().setPreAuthBodyBudget(new PreAuthBodyBudget(
+                builder.preAuthBodyBudget >= 0 ? builder.preAuthBodyBudget :
+                        Math.max(Runtime.getRuntime().maxMemory() / 4,
+                                builder.v4MaxNonChunkedRequestSize)));
 
         var context = new ServletContextHandler();
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
@@ -275,6 +293,9 @@ public final class S3Proxy {
         private boolean ignoreUnknownHeaders;
         @Nullable private CrossOriginResourceSharing corsRules;
         private int jettyMaxThreads = 200;  // sourced from QueuedThreadPool()
+        private boolean jettyVirtualThreads = true;
+        // negative: a quarter of the heap, at least one largest body
+        private long preAuthBodyBudget = -1;
         private int maximumTimeSkew = 15 * 60;
         private boolean accessLog;
         private RequestLog.@Nullable Writer accessLogWriter;
@@ -452,6 +473,19 @@ public final class S3Proxy {
                 builder.jettyMaxThreads(Integer.parseInt(jettyMaxThreads));
             }
 
+            String jettyVirtualThreads = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_JETTY_VIRTUAL_THREADS);
+            if (jettyVirtualThreads != null) {
+                builder.jettyVirtualThreads(
+                        Boolean.parseBoolean(jettyVirtualThreads));
+            }
+
+            String preAuthBodyBudget = properties.getProperty(
+                    S3ProxyConstants.PROPERTY_PRE_AUTH_BODY_BUDGET);
+            if (preAuthBodyBudget != null && !preAuthBodyBudget.isBlank()) {
+                builder.preAuthBodyBudget(Long.parseLong(preAuthBodyBudget));
+            }
+
             String maximumTimeSkew = properties.getProperty(
                     S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
             if (maximumTimeSkew != null && !maximumTimeSkew.isBlank()) {
@@ -585,6 +619,27 @@ public final class S3Proxy {
 
         public Builder jettyMaxThreads(int jettyMaxThreads) {
             this.jettyMaxThreads = jettyMaxThreads;
+            return this;
+        }
+
+        /**
+         * Whether requests run on virtual threads where the runtime has
+         * them; see {@link S3ProxyConstants#PROPERTY_JETTY_VIRTUAL_THREADS}.
+         */
+        public Builder jettyVirtualThreads(boolean jettyVirtualThreads) {
+            this.jettyVirtualThreads = jettyVirtualThreads;
+            return this;
+        }
+
+        /**
+         * The most bytes of bodies held before their requests are
+         * authenticated; see
+         * {@link S3ProxyConstants#PROPERTY_PRE_AUTH_BODY_BUDGET}.
+         */
+        public Builder preAuthBodyBudget(long preAuthBodyBudget) {
+            checkArgument(preAuthBodyBudget >= 0,
+                    "Pre-auth body budget must not be negative");
+            this.preAuthBodyBudget = preAuthBodyBudget;
             return this;
         }
 
@@ -736,6 +791,14 @@ public final class S3Proxy {
             if (this.jettyMaxThreads != that.jettyMaxThreads) {
                 differences.add(S3ProxyConstants.PROPERTY_JETTY_MAX_THREADS);
             }
+            if (this.jettyVirtualThreads != that.jettyVirtualThreads) {
+                differences.add(
+                        S3ProxyConstants.PROPERTY_JETTY_VIRTUAL_THREADS);
+            }
+            if (this.preAuthBodyBudget != that.preAuthBodyBudget) {
+                differences.add(
+                        S3ProxyConstants.PROPERTY_PRE_AUTH_BODY_BUDGET);
+            }
             if (this.maximumTimeSkew != that.maximumTimeSkew) {
                 differences.add(S3ProxyConstants.PROPERTY_MAXIMUM_TIME_SKEW);
             }
@@ -775,6 +838,7 @@ public final class S3Proxy {
         @Override
         public int hashCode() {
             return Objects.hash(authenticationType, jettyMaxThreads,
+                    jettyVirtualThreads, preAuthBodyBudget,
                     maximumTimeSkew, accessLog, metricsEnabled, metricsPort,
                     metricsHost,
                     endpoint, secureEndpoint, sslContext,
