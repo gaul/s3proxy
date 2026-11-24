@@ -38,6 +38,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
@@ -624,9 +625,44 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
     }
 
+    /**
+     * Judges a write's If-None-Match against an object written before
+     * encryption was turned on.  The write goes to the suffixed name and the
+     * store below resolves the condition there as it publishes, but the
+     * condition is about the key, and such an object rests under the key
+     * itself: see {@link #blobNameWithSuffix(String, String)}.  Without this
+     * a write that may only create would replace what the key answers.
+     * Looking ahead of the write is enough, since nothing this store writes
+     * arrives under the bare name but a copy of another such object.
+     */
+    private void checkIfNoneMatch(String container, String name,
+            @Nullable String ifNoneMatch) {
+        if (ifNoneMatch == null) {
+            return;
+        }
+        String stored = blobNameWithSuffix(container, name);
+        if (isEncrypted(stored)) {
+            // the name the write goes to, which the store below judges
+            return;
+        }
+        HeadObjectResponse head = delegate().blobMetadataIfPresent(container,
+                stored);
+        if (head == null) {
+            return;
+        }
+        String eTag = head.eTag();
+        CharMatcher quote = CharMatcher.is('"');
+        if (ifNoneMatch.equals("*") || (eTag != null &&
+                quote.trimFrom(ifNoneMatch).equals(quote.trimFrom(eTag)))) {
+            throw S3Exceptions.preconditionFailed(/*cause=*/ null);
+        }
+    }
+
     @Override
     public PutObjectResponse putBlob(PutObjectRequest request,
         InputStream payload) {
+        checkIfNoneMatch(request.bucket(), request.key(),
+                request.ifNoneMatch());
         long contentLength = requireNonNull(request.contentLength());
         InputStream encrypted;
         try {
@@ -669,6 +705,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         String blobName = blobNameWithSuffix(request.sourceKey());
         if (isEncrypted(request.sourceKey()) ||
                 delegate().blobExists(request.sourceBucket(), blobName)) {
+            checkIfNoneMatch(request.destinationBucket(),
+                    request.destinationKey(), request.ifNoneMatch());
             request = request.toBuilder()
                     .sourceKey(blobName)
                     .destinationKey(blobNameWithSuffix(
@@ -875,6 +913,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         MultipartUpload mpu, CompleteMultipartUploadRequest request) {
 
         String key = request.key();
+        checkIfNoneMatch(request.bucket(), key, request.ifNoneMatch());
         return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
             request.toBuilder()
                 .key(blobNameWithSuffix(key))

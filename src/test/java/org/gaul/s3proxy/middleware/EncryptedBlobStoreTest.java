@@ -564,6 +564,87 @@ public final class EncryptedBlobStoreTest {
         assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
     }
 
+    /**
+     * A condition on a write is about the key.  The object of a key written
+     * before encryption was turned on rests under the key itself, not under
+     * the suffixed name the write goes to and the store below judges, so a
+     * write that may only create has to find it there and leave it be.
+     */
+    @Test
+    public void testIfNoneMatchSeesBlobNotEncrypted() throws Exception {
+        String blobName = TestUtils.createRandomBlobName();
+        byte[] content = filler(0, LAST_PART_SIZE);
+        blobStore.putBlob(
+            makeRequest(containerName, blobName, content.length),
+            new ByteArrayInputStream(content));
+        String eTag = encryptedBlobStore.blobMetadata(containerName,
+            blobName).eTag();
+        byte[] replacement = filler(1, LAST_PART_SIZE);
+
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, blobName));
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+            new ByteArrayInputStream(replacement), replacement.length);
+        var parts = encryptedBlobStore.listMultipartUpload(mpu);
+
+        String sourceName = TestUtils.createRandomBlobName();
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, sourceName, replacement.length),
+            new ByteArrayInputStream(replacement));
+
+        for (String ifNoneMatch : new String[] {"*", eTag}) {
+            var put = makeRequest(containerName, blobName, replacement.length)
+                .toBuilder()
+                .ifNoneMatch(ifNoneMatch)
+                .build();
+            assertThatThrownBy(() -> encryptedBlobStore.putBlob(put,
+                    new ByteArrayInputStream(replacement)))
+                .as("PutObject If-None-Match: %s", ifNoneMatch)
+                .isInstanceOfSatisfying(AwsServiceException.class,
+                    e -> assertThat(e.statusCode()).isEqualTo(412));
+
+            var complete = TestUtils.completeRequest(mpu, parts).toBuilder()
+                .ifNoneMatch(ifNoneMatch)
+                .build();
+            assertThatThrownBy(() ->
+                    encryptedBlobStore.completeMultipartUpload(mpu, complete))
+                .as("CompleteMultipartUpload If-None-Match: %s", ifNoneMatch)
+                .isInstanceOfSatisfying(AwsServiceException.class,
+                    e -> assertThat(e.statusCode()).isEqualTo(412));
+
+            var copy = CopyObjectRequest.builder()
+                .sourceBucket(containerName)
+                .sourceKey(sourceName)
+                .destinationBucket(containerName)
+                .destinationKey(blobName)
+                .ifNoneMatch(ifNoneMatch)
+                .build();
+            assertThatThrownBy(() -> encryptedBlobStore.copyBlob(copy))
+                .as("CopyObject If-None-Match: %s", ifNoneMatch)
+                .isInstanceOfSatisfying(AwsServiceException.class,
+                    e -> assertThat(e.statusCode()).isEqualTo(412));
+        }
+        encryptedBlobStore.abortMultipartUpload(mpu);
+
+        assertThat(blobStore.blobExists(containerName,
+            blobName + Constants.S3_ENC_SUFFIX)).isFalse();
+        try (var is = encryptedBlobStore.getBlob(containerName, blobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(content);
+        }
+
+        // a key with no object under either name is still there to create
+        String created = TestUtils.createRandomBlobName();
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, created, replacement.length)
+                .toBuilder()
+                .ifNoneMatch("*")
+                .build(),
+            new ByteArrayInputStream(replacement));
+        try (var is = encryptedBlobStore.getBlob(containerName, created)) {
+            assertThat(is.readAllBytes()).isEqualTo(replacement);
+        }
+    }
+
     @Test
     public void testListEncrypted() {
         var contents = new String[] {
