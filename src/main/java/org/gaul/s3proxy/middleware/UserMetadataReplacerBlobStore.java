@@ -35,6 +35,8 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -220,5 +222,11 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
     public ListMultipartUploadsResponse listMultipartUploads(
             ListMultipartUploadsRequest request) {
         return delegate().listMultipartUploads(request);
+    }
+
+    /** A delete carries no metadata, so the batch is the delegate's. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        return delegate().removeBlobs(request);
     }
 }

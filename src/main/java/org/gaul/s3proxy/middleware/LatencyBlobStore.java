@@ -46,6 +46,8 @@ import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -229,6 +231,13 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
         simulateLatency(OP_REMOVE_BLOB);
         return super.removeBlob(request);
+    }
+
+    /** One round trip for the batch, as a backend's bulk delete takes. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        simulateLatency(OP_REMOVE_BLOB);
+        return delegate().removeBlobs(request);
     }
 
     @Override

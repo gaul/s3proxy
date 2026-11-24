@@ -20,6 +20,8 @@ import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
@@ -65,5 +67,11 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
     public ListMultipartUploadsResponse listMultipartUploads(
             ListMultipartUploadsRequest request) {
         return delegate().listMultipartUploads(request);
+    }
+
+    /** A delete carries no cache headers, so the batch is the delegate's. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        return delegate().removeBlobs(request);
     }
 }

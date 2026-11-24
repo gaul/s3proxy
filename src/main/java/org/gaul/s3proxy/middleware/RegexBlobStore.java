@@ -49,6 +49,8 @@ import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -200,6 +202,19 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         return super.removeBlob(request.toBuilder()
                 .key(replaceBlobName(request.key()))
                 .build());
+    }
+
+    /**
+     * One batch of renamed keys, rather than one delete a key.  Rules may
+     * rename two keys onto one object, which the batch cannot answer for
+     * separately; those requests still delete one key at a time.
+     */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        String container = request.bucket();
+        return RenamedBatchDelete.removeBlobs(delegate(), request,
+                key -> container, this::replaceBlobName,
+                () -> super.removeBlobs(request));
     }
 
     @Override

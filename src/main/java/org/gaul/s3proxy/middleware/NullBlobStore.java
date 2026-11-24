@@ -41,6 +41,8 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -304,4 +306,9 @@ final class NullBlobStore extends ForwardingBlobStore {
         return false;
     }
 
+    /** Only content is faked, so the batch is the delegate's. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        return delegate().removeBlobs(request);
+    }
 }

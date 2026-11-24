@@ -23,6 +23,8 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -86,5 +88,11 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     public ListMultipartUploadsResponse listMultipartUploads(
             ListMultipartUploadsRequest request) {
         return delegate().listMultipartUploads(request);
+    }
+
+    /** Only writes take the storage class, so the batch is the delegate's. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        return delegate().removeBlobs(request);
     }
 }

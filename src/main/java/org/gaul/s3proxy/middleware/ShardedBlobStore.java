@@ -65,6 +65,8 @@ import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsReq
 import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
@@ -634,6 +636,18 @@ final class ShardedBlobStore extends ForwardingBlobStore {
         return this.delegate().removeBlob(request.toBuilder()
                 .bucket(this.getShard(request.bucket(), request.key()))
                 .build());
+    }
+
+    /**
+     * One batch for each shard the keys hash to, rather than one delete a
+     * key: at most as many round trips as the bucket has shards.
+     */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        String container = request.bucket();
+        return RenamedBatchDelete.removeBlobs(this.delegate(), request,
+                key -> this.getShard(container, key), key -> key,
+                () -> super.removeBlobs(request));
     }
 
     @Override

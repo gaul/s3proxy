@@ -195,6 +195,14 @@ public abstract class ForwardingBlobStore extends ForwardingObject
         return delegate().removeBlob(request);
     }
 
+    // removeBlobs is not forwarded here, unlike removeBlob: the interface's
+    // default deletes through this wrapper's removeBlob one key at a time,
+    // so a wrapper that renames keys or must see each delete itself stays
+    // correct without saying so.  The price is a round trip a key where the
+    // delegate has a bulk delete, so each wrapper that can hand the batch
+    // down whole overrides removeBlobs to do so, the way it opts in to
+    // copyMultipartPart.
+
     @Override
     public boolean supportsVersioning() {
         return delegate().supportsVersioning();

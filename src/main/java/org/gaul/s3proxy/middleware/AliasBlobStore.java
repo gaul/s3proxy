@@ -50,6 +50,8 @@ import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsReq
 import software.amazon.awssdk.services.s3.model.DeleteBucketOwnershipControlsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
 import software.amazon.awssdk.services.s3.model.GetBucketAclRequest;
@@ -342,6 +344,15 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         return delegate().removeBlob(request.toBuilder()
                 .bucket(getContainer(request.bucket()))
                 .build());
+    }
+
+    /** One batch for the backend bucket, rather than one delete a key. */
+    @Override
+    public DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
+        String container = getContainer(request.bucket());
+        return RenamedBatchDelete.removeBlobs(delegate(), request,
+                key -> container, key -> key,
+                () -> super.removeBlobs(request));
     }
 
     @Override
