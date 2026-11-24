@@ -640,6 +640,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
          */
         boolean wants(String name);
 
+        /**
+         * Whether any entry beginning with {@code prefix} could be kept,
+         * asked before the walk descends into a directory: everything
+         * below one has its name as a prefix.
+         */
+        default boolean wantsUnder(String prefix) {
+            return true;
+        }
+
         void add(ListEntry entry);
     }
 
@@ -666,6 +675,25 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
             return entries.size() < limit ||
                     name.compareTo(entries.last().name()) < 0;
+        }
+
+        /**
+         * Nothing below a directory is kept when every name it could hold
+         * sorts at or before the marker -- the marker sorts after the
+         * directory's prefix without beginning with it -- or when the page
+         * is full and the prefix sorts at or after its last entry, which
+         * the walk only ever lowers.  A page well into a listing used to
+         * read every directory ahead of it again, which made paging
+         * through a bucket quadratic in its size.
+         */
+        @Override
+        public boolean wantsUnder(String prefix) {
+            if (marker != null && marker.compareTo(prefix) > 0 &&
+                    !marker.startsWith(prefix)) {
+                return false;
+            }
+            return entries.size() < limit ||
+                    prefix.compareTo(entries.last().name()) < 0;
         }
 
         @Override
@@ -766,7 +794,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throws IOException {
         var attr = Files.readAttributes(path, BasicFileAttributes.class);
         if (attr.isDirectory()) {
-            if (!"/".equals(delimiter)) {
+            // the "/" key's backing store lists under its key, not its name
+            var name = path.equals(containerPath.resolve(SLASH_BLOB_NAME)) ?
+                    "" : relativeName(containerPath, path);
+            if (!"/".equals(delimiter) && builder.wantsUnder(name + "/")) {
                 listHelper(builder, containerPath, path, pathPrefixString,
                         delimiter, filterMultipart);
             }
@@ -777,11 +808,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
             if ("/".equals(delimiter) || markerExists) {
-                // the "/" key's backing store lists under its key, not its
-                // name
-                var name = path.equals(
-                        containerPath.resolve(SLASH_BLOB_NAME)) ? "" :
-                        relativeName(containerPath, path);
                 logger.debug("adding prefix: {}", name);
                 // A directory-marker object (a key ending in "/") that
                 // was explicitly stored carries the XATTR_CONTENT_MD5
