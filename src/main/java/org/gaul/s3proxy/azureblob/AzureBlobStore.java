@@ -637,14 +637,16 @@ public final class AzureBlobStore implements BlobStore {
             page = firstPageWithEntries(
                     m -> pages.iterableByPage(m).iterator().next(), marker,
                     blobs -> afterStartAfter(blobs, startAfter).stream()
-                            .filter(blob ->
-                                    !isMultipartInternal(blob.getName()))
+                            .filter(blob -> !isMultipartInternal(
+                                    blob.getName(),
+                                    Boolean.TRUE.equals(blob.isPrefix())))
                             .toList());
         } catch (BlobStorageException bse) {
             throw translate(bse, container, /*key=*/ null);
         }
         for (var blob : page.values()) {
-            if (isMultipartInternal(blob.getName())) {
+            if (isMultipartInternal(blob.getName(),
+                    Boolean.TRUE.equals(blob.isPrefix()))) {
                 continue;
             }
             var properties = blob.getProperties();
@@ -733,7 +735,7 @@ public final class AzureBlobStore implements BlobStore {
             if (after != null && name.compareTo(after) <= 0) {
                 continue;
             }
-            if (isMultipartInternal(name)) {
+            if (isMultipartInternal(name, prefix)) {
                 continue;
             }
             if (latest == null) {
@@ -773,11 +775,13 @@ public final class AzureBlobStore implements BlobStore {
      * ".s3proxy/", which a client emptying the bucket would delete.  A
      * client's own keys under ".s3proxy/" share that group and are hidden
      * with it from a listing by delimiter; they are listed under its
-     * prefix, and in a listing without one.
+     * prefix, and in a listing without one.  Only a common prefix is that
+     * group: a client's object named ".s3proxy", or ".", holds no stub and
+     * is listed like any other.
      */
-    private static boolean isMultipartInternal(String name) {
-        return name.startsWith(STUB_BLOB_PREFIX) ||
-                (!name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
+    private static boolean isMultipartInternal(String name, boolean prefix) {
+        return name.startsWith(STUB_BLOB_PREFIX) || (prefix &&
+                !name.isEmpty() && STUB_BLOB_PREFIX.startsWith(name));
     }
 
     /**
@@ -1365,7 +1369,7 @@ public final class AzureBlobStore implements BlobStore {
             BlobItem first = it.next();
             String name = first.getName();
             if (Boolean.TRUE.equals(first.isPrefix())) {
-                if (isMultipartInternal(name)) {
+                if (isMultipartInternal(name, /*prefix=*/ true)) {
                     continue;
                 }
                 if (keyMarker != null && name.compareTo(keyMarker) <= 0) {
@@ -1388,7 +1392,7 @@ public final class AzureBlobStore implements BlobStore {
             boolean beforeMarker = keyMarker != null &&
                     name.compareTo(keyMarker) < 0;
             // the store's own record of an upload is no object
-            boolean internal = isMultipartInternal(name);
+            boolean internal = isMultipartInternal(name, /*prefix=*/ false);
             int room = maxKeys - count;
             var versions = new ArrayDeque<VersionRow>();
             BlobItem latest = null;

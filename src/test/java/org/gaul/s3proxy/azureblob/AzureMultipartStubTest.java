@@ -263,6 +263,41 @@ public final class AzureMultipartStubTest {
         }
     }
 
+    /**
+     * A client's object whose name the stubs' path begins with holds no
+     * stub: only the common prefix a delimiter folds them into is theirs.
+     * Hidden for sharing that name, it was an object no listing showed.
+     */
+    @Test
+    public void testListShowsObjectsNamedLikeTheStubsGroup() {
+        names.addAll(List.of(".", ".s3proxy"));
+        for (boolean versioning : new boolean[] {false, true}) {
+            try (BlobStore blobStore = store(versioning)) {
+                for (String delimiter : new String[] {null, "/"}) {
+                    var response = blobStore.list(ListObjectsV2Request
+                            .builder().bucket("container")
+                            .delimiter(delimiter).build());
+
+                    assertThat(response.contents())
+                            .as("versioning %s, delimiter %s", versioning,
+                                    delimiter)
+                            .extracting(S3Object::key)
+                            .containsExactly(".", ".s3proxy", "key");
+                    assertThat(response.commonPrefixes()).isEmpty();
+                }
+            }
+        }
+        try (BlobStore blobStore = store(/*versioning=*/ true)) {
+            var response = blobStore.listVersions(
+                    ListObjectVersionsRequest.builder()
+                            .bucket("container").delimiter("/").build());
+
+            assertThat(response.versions()).extracting(ObjectVersion::key)
+                    .containsExactly(".", ".s3proxy", "key");
+            assertThat(response.commonPrefixes()).isEmpty();
+        }
+    }
+
     @Test
     public void testListVersionsHidesStubs() {
         try (BlobStore blobStore = store(/*versioning=*/ true)) {
