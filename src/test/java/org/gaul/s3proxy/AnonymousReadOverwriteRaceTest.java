@@ -86,6 +86,9 @@ public final class AnonymousReadOverwriteRaceTest {
         // a store without object ACLs has no such race to lose
         assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(
                 TestUtils.testBlobStoreProvider()));
+        // nor does the filesystem store on Windows, whose NTFS has no POSIX
+        // permission bits to keep public-read in
+        assumeTrue(!TestUtils.filesystemOnWindows());
         backing = TestUtils.createTestBlobStore();
         blobStore = new OverwritingBlobStore(backing);
         containerName = TestUtils.createRandomContainerName();

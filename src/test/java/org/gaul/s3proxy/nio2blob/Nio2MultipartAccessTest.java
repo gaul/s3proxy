@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.nio2blob;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,11 @@ public final class Nio2MultipartAccessTest {
 
     @BeforeEach
     public void setUp() {
+        // The filesystem store keeps an ACL in POSIX permission bits, which
+        // a filesystem without them -- NTFS -- cannot hold, so every object
+        // there reads back private.
+        assumeTrue(root.getFileSystem().supportedFileAttributeViews()
+                .contains("posix"));
         blobStore = new FilesystemNio2BlobStore(root.toString());
         blobStore.createContainer(CONTAINER);
     }
