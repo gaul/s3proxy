@@ -28,6 +28,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import com.google.common.io.ByteSource;
@@ -110,6 +112,62 @@ public final class UnreadBodySuccessTest {
             out.flush();
             assertThat(readHead(in)).startsWith("HTTP/1.1 200 ");
         }
+    }
+
+    /**
+     * A body sent whole with a request whose answer has none of its own.
+     * The answer is not held back while the body is thrown away, and the
+     * connection takes its next request at once.  The answer waited out the
+     * drain's idle second, since it was unsent until the handler returned;
+     * and the drain itself waited that second out on a body it had already
+     * read, refused requests' included, since Jetty calls a body finished
+     * only once a read has met its end.
+     */
+    @Test
+    public void testWholeBodyAnsweredPromptly() throws Exception {
+        // the last is refused: its body is no CreateBucketConfiguration
+        for (String request : List.of(
+                "HEAD /" + CONTAINER,
+                "HEAD /" + CONTAINER + "/source",
+                "DELETE /" + CONTAINER + "/absent",
+                "PUT /other")) {
+            try (var socket = new Socket()) {
+                socket.connect(new InetSocketAddress(
+                        InetAddress.getLoopbackAddress(), port));
+                socket.setSoTimeout(10_000);
+                OutputStream out = socket.getOutputStream();
+                InputStream in = new BufferedInputStream(
+                        socket.getInputStream());
+
+                long start = System.nanoTime();
+                out.write((request + " HTTP/1.1\r\n" +
+                        "Host: 127.0.0.1\r\n" +
+                        "Content-Length: 2\r\n" +
+                        "\r\n" +
+                        "ab").getBytes(StandardCharsets.ISO_8859_1));
+                out.flush();
+                String head = readHead(in);
+                assertThat(millisSince(start)).as(request).isLessThan(500);
+                // a HEAD's answer and a 204 have no body to skip
+                if (!request.startsWith("HEAD ") &&
+                        !head.startsWith("HTTP/1.1 204 ")) {
+                    skipBody(in, head);
+                }
+
+                start = System.nanoTime();
+                out.write(("HEAD /" + CONTAINER + " HTTP/1.1\r\n" +
+                        "Host: 127.0.0.1\r\n" +
+                        "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                out.flush();
+                assertThat(readHead(in)).as(request)
+                        .startsWith("HTTP/1.1 200 ");
+                assertThat(millisSince(start)).as(request).isLessThan(500);
+            }
+        }
+    }
+
+    private static long millisSince(long start) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
     }
 
     /** Reads a response's status line and headers, through the blank line. */

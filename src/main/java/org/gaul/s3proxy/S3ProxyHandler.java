@@ -8650,6 +8650,7 @@ public class S3ProxyHandler {
             long drained = 0;
             long start = System.nanoTime();
             long lastProgress = start;
+            long length = request.getContentLengthLong();
             while (!is.isFinished() && drained <= DRAIN_MAX_BYTES) {
                 int available = is.available();
                 if (available > 0) {
@@ -8659,6 +8660,15 @@ public class S3ProxyHandler {
                         return;
                     }
                     drained += count;
+                    // The body has ended once its declared length is read.
+                    // Jetty calls it finished only after a read meets that
+                    // end, which no amount of polling brings, so without
+                    // this the wait ran out its full idle time on a body
+                    // already read.  One the operation had begun to read
+                    // never adds up here, and still waits that out.
+                    if (length >= 0 && drained >= length) {
+                        return;
+                    }
                     lastProgress = System.nanoTime();
                     continue;
                 }
@@ -8686,11 +8696,28 @@ public class S3ProxyHandler {
      * Jetty close the connection after a 200 that had not said so, and a
      * client that pooled it wrote its next request into the closing socket.
      * The same bounded wait as for a refused request's body.
+     *
+     * <p>The response is completed first, as a refused request's is.  One
+     * that wrote no body -- a HEAD, a 204 -- was otherwise still unsent while
+     * the body drained, so its client waited out the drain for an answer
+     * that was ready.
      */
-    final void drainUnreadBodyAfterResponse(HttpServletRequest request)
-            throws IOException {
+    final void drainUnreadBodyAfterResponse(HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
         if (hasUnreadBody(request)) {
+            completeResponse(response);
             drainUnreadBody(request);
+        }
+    }
+
+    /** Sends what the response holds and ends it, by whichever stream. */
+    private static void completeResponse(HttpServletResponse response)
+            throws IOException {
+        try {
+            response.getOutputStream().close();
+        } catch (IllegalStateException ise) {
+            // the operation wrote through getWriter()
+            response.getWriter().close();
         }
     }
 

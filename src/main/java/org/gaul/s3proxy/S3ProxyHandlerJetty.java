@@ -91,7 +91,7 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 // error is not refused for this request's share.
                 handler.releasePreAuthBody(request);
             }
-            handler.drainUnreadBodyAfterResponse(request);
+            handler.drainUnreadBodyAfterResponse(request, response);
         } catch (IllegalArgumentException iae) {
             logger.debug("IllegalArgumentException:", iae);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
