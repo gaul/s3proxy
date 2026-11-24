@@ -7691,7 +7691,11 @@ public class S3ProxyHandler {
             return false;
         }
         HeadObjectResponse metadata = blobStore.blobMetadataIfPresent(
-                containerName, blobName);
+                HeadObjectRequest.builder()
+                        .bucket(containerName)
+                        .key(blobName)
+                        .checksumMode(ChecksumMode.ENABLED)
+                        .build());
         if (metadata == null || metadata.eTag() == null ||
                 !equalsIgnoringSurroundingQuotes(expected, metadata.eTag())) {
             return false;
@@ -7714,6 +7718,17 @@ public class S3ProxyHandler {
             }
         }
         FlexChecksum headerAlgorithm = MpuChecksums.headerAlgorithm(request);
+        if (checksum == null) {
+            // A store that keeps the checksum itself, as aws-s3 does,
+            // reports it for the object; asked only for the algorithm this
+            // request names, as the first completion was.
+            FlexChecksum asked = headerAlgorithm != null ? headerAlgorithm :
+                    MpuChecksums.algorithm(cmu);
+            if (asked != null && asked.value(metadata) != null) {
+                checksum = asked;
+                checksumValue = asked.value(metadata);
+            }
+        }
         if (headerAlgorithm != null && checksum != null &&
                 checksumValue != null) {
             String provided = requireNonNull(
