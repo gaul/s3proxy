@@ -3482,11 +3482,46 @@ public final class AwsSdkTest {
         assertThat(meta.contentLength()).isEqualTo(0L);
         assertThat(meta.metadata()).containsEntry("mode", "16832");
 
-        // The reserved backing store is hidden: "/" is not enumerated.
+        // The reserved backing store is hidden, but the key it stands for
+        // is listed like any other: an object no listing shows is one its
+        // owner cannot find to delete, and the bucket cannot be deleted
+        // around it.
         ListObjectsV2Response list = client.listObjectsV2(
                 b -> b.bucket(containerName));
         assertThat(list.contents().stream().map(S3Object::key))
+                .containsExactly("/", "sibling.txt");
+        assertThat(list.contents().get(0).size()).isEqualTo(0L);
+        list = client.listObjectsV2(
+                b -> b.bucket(containerName).delimiter("/"));
+        assertThat(list.commonPrefixes()).extracting(CommonPrefix::prefix)
+                .containsExactly("/");
+        assertThat(list.contents().stream().map(S3Object::key))
                 .containsExactly("sibling.txt");
+        // as the prefix itself it is an object, whatever the delimiter
+        list = client.listObjectsV2(
+                b -> b.bucket(containerName).prefix("/").delimiter("/"));
+        assertThat(list.commonPrefixes()).isEmpty();
+        assertThat(list.contents().stream().map(S3Object::key))
+                .containsExactly("/");
+        // and it keeps its place in the order when a listing is paged
+        assertThat(client.listObjectsV2(
+                b -> b.bucket(containerName).startAfter("/")).contents()
+                .stream().map(S3Object::key)).containsExactly("sibling.txt");
+        // ListObjectVersions takes what is current from the same listing
+        if (blobStore.supportsVersioning()) {
+            assertThat(client.listObjectVersions(
+                    b -> b.bucket(containerName)).versions())
+                    .extracting(version -> version.key())
+                    .containsExactly("/", "sibling.txt");
+        }
+        // the backing store's own name matches no prefix
+        for (String prefix : List.of(".s3proxy-s", ".s3proxy-slash",
+                ".s3proxy-slash/")) {
+            list = client.listObjectsV2(
+                    b -> b.bucket(containerName).prefix(prefix));
+            assertThat(list.contents()).isEmpty();
+            assertThat(list.commonPrefixes()).isEmpty();
+        }
 
         // DELETE "/" removes only that object, never the bucket or the sibling.
         blobStore.removeBlob(containerName, "/");
@@ -3504,6 +3539,28 @@ public final class AwsSdkTest {
 
         blobStore.removeBlob(containerName, "/");
         assertThat(blobStore.containerExists(containerName)).isTrue();
+    }
+
+    @Test
+    public void testSlashKeyDoesNotKeepBucketFromDelete() throws Exception {
+        // The key "/" was left out of every listing, so a bucket holding it
+        // listed as empty while DeleteBucket refused it as not.  Emptying a
+        // bucket from its listing has to be enough to delete it.
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        blobStore.putBlob(TestUtils.putRequest(containerName, "/",
+                ByteSource.empty()), ByteSource.empty().openStream());
+
+        ListObjectsV2Response list = client.listObjectsV2(
+                b -> b.bucket(containerName));
+        assertThat(list.contents().stream().map(S3Object::key))
+                .containsExactly("/");
+        for (S3Object object : list.contents()) {
+            blobStore.removeBlob(containerName, object.key());
+        }
+        client.deleteBucket(b -> b.bucket(containerName));
+        assertThat(blobStore.containerExists(containerName)).isFalse();
     }
 
     /**

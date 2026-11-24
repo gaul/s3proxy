@@ -196,7 +196,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // container directory itself, which let object operations (DELETE, PUT,
     // ACL) mutate bucket-level state. Redirecting it to a dedicated child keeps
     // it an ordinary directory-marker blob while isolating it from the
-    // container inode. Hidden from listings and reserved from client keys.
+    // container inode. Reserved from client keys, and listed under the key
+    // "/" it stands for rather than under this name.
     private static final String SLASH_BLOB_NAME = ".s3proxy-slash";
     // Reserved container-level directory holding every version of a key but
     // the current one, plus delete markers. The current version stays at its
@@ -377,7 +378,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
         var prefix = request.prefix();
         var dirPrefix = containerPath;
-        if (prefix != null) {
+        // The object whose key is "/" rests under a name of its own; see
+        // resolveBlobPath.  No other key begins with a slash, so it is all
+        // that a prefix of "/" matches, and the walk starts where nothing
+        // lies below.
+        var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
+        var slashPrefix = "/".equals(prefix);
+        if (slashPrefix) {
+            dirPrefix = slashBlob;
+        } else if (prefix != null) {
             var unused = resolveName(containerPath, prefix, "prefix");
             int idx = prefix.lastIndexOf('/');
             if (idx != -1) {
@@ -386,7 +395,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         } else {
             prefix = "";
         }
-        var pathPrefix = containerPath.resolve(prefix).normalize();
+        var pathPrefix = slashPrefix ? slashBlob :
+                containerPath.resolve(prefix).normalize();
         checkValidPath(containerPath, pathPrefix);
         // The walk starts at the prefix's directory, which is held to the
         // container as the prefix is: "../<container>" and an absolute path
@@ -406,7 +416,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // under the container.  A walk starting below the container has
         // already passed that name, so it is looked for here: a prefix of
         // ".mpus-<uploadId>-dir/" listed the parts of an upload to "dir/...".
-        if (!dirPrefix.equals(containerPath) && isReservedName(
+        // The prefix "/" is the one way in, to the "/" key's backing store.
+        if (!slashPrefix && !dirPrefix.equals(containerPath) && isReservedName(
                 containerPath.relativize(dirPrefix).getName(0).toString(),
                 filterMultipart)) {
             return SdkResponses.objectsPage(List.of(), List.of(), null);
@@ -418,6 +429,22 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             listHelper(set, containerPath, dirPrefix, pathPrefixString, delimiter,
                     filterMultipart);
 
+            // listHelper leaves the "/" key's reserved name out, and a
+            // client can store that key: left out too, it was an object no
+            // listing showed, holding the bucket undeletable.  List it
+            // under its key, as the directory marker it is stored as.
+            if (prefix.isEmpty() && Files.isDirectory(slashBlob)) {
+                try {
+                    listEntry(set, containerPath, slashBlob, pathPrefixString,
+                            delimiter, filterMultipart);
+                } catch (IOException ioe) {
+                    // deleted mid-request: there is nothing left to list
+                    if (!vanished(ioe, slashBlob)) {
+                        throw ioe;
+                    }
+                }
+            }
+
             // A directory-marker object whose key equals the requested prefix
             // (e.g. prefix "dir-marker/") is the prefix directory itself, into
             // which listHelper descends and lists children -- so it never
@@ -425,7 +452,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // the prefix, including this exact key, so add it here. It is a
             // BLOB (not a prefix) because its remainder after the prefix is
             // empty, placing it in <Contents> regardless of the delimiter.
-            if (prefix.endsWith("/") && Files.isDirectory(pathPrefix)) {
+            // The "/" key's backing store answers to the prefix "/" alone,
+            // never to its own name.
+            if (prefix.endsWith("/") && Files.isDirectory(pathPrefix) &&
+                    (slashPrefix || !pathPrefix.equals(slashBlob))) {
                 try {
                     var markerXattrs = safeGetXattrs(pathPrefix);
                     if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
@@ -571,8 +601,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (filterMultipart && name.startsWith(MULTIPART_PREFIX)) {
             return true;
         }
-        // The reserved backing store for the "/" key is not itself a
-        // client-visible object; the key "/" is never enumerated.
+        // The reserved backing store for the "/" key is not listed under
+        // its own name; list() adds the key "/" it stands for.
         if (name.equals(SLASH_BLOB_NAME)) {
             return true;
         }
@@ -602,7 +632,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
 
             // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
             if ("/".equals(delimiter) || markerExists) {
-                var name = relativeName(containerPath, path);
+                // the "/" key's backing store lists under its key, not its
+                // name
+                var name = path.equals(
+                        containerPath.resolve(SLASH_BLOB_NAME)) ? "" :
+                        relativeName(containerPath, path);
                 logger.debug("adding prefix: {}", name);
                 // A directory-marker object (a key ending in "/") that
                 // was explicitly stored carries the XATTR_CONTENT_MD5
@@ -2432,10 +2466,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Delete the container and everything under it, s3proxy's own bookkeeping
      * included.  The default implementation clears what list() reports and
      * then removes the directory, but list() hides the multipart parts and
-     * stubs and the "/" key sentinel, so a container left holding only those
-     * -- an upload that was never completed or aborted -- was never
-     * emptied, and its deleteBucket would refuse what the caller cannot
-     * see.
+     * stubs, so a container left holding only those -- an upload that was
+     * never completed or aborted -- was never emptied, and its deleteBucket
+     * would refuse what the caller cannot see.
      */
     @Override
     public final void deleteContainer(String container) {
