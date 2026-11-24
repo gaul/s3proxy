@@ -80,6 +80,21 @@ public final class DefaultContentTypeTest {
                 "binary/octet-stream");
     }
 
+    /**
+     * The key is the uploader's to choose and says nothing of the type: the
+     * nio2 stores guess one from the name of a file written around S3Proxy,
+     * and must not take an object stored without a type for one of those.
+     */
+    @Test
+    public void testPutWithoutContentTypeIgnoresKeyExtension()
+            throws Exception {
+        put("blob.html", /*contentType=*/ null);
+        assertThat(contentTypeOf(head("blob.html"))).isEqualTo(
+                "binary/octet-stream");
+        assertThat(contentTypeOf(get("blob.html"))).isEqualTo(
+                "binary/octet-stream");
+    }
+
     @Test
     public void testPutWithContentType() throws Exception {
         put("blob", "text/plain");

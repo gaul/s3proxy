@@ -981,8 +981,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (contentType == null && !isDirectory) {
                 // A file written around S3Proxy carries no type of ours, so
                 // guess from its name and fall back to what S3 answers for an
-                // object stored without one.
-                contentType = Files.probeContentType(path);
+                // object stored without one.  An object S3Proxy stored
+                // carries the ETag attribute; its key is the uploader's to
+                // choose and must not choose the type, so it is not guessed
+                // at even if it was stored without one.
+                if (!attributes.contains(XATTR_CONTENT_MD5)) {
+                    contentType = Files.probeContentType(path);
+                }
                 if (contentType == null) {
                     contentType = ContentMetadata.DEFAULT_CONTENT_TYPE;
                 }
@@ -1856,8 +1861,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .contentDisposition(request.contentDisposition())
                 .contentEncoding(request.contentEncoding())
                 .contentLanguage(request.contentLanguage())
-                .contentType(request.contentType())
                 .userMetadata(request.metadata());
+        // Only a type the request names replaces the builder's default: an
+        // upload that names none is stored as binary/octet-stream, as on S3,
+        // so that a read does not take the object for a file written around
+        // S3Proxy and guess a type from its key.
+        String contentType = request.contentType();
+        if (contentType != null) {
+            builder.contentType(contentType);
+        }
         Long contentLength = request.contentLength();
         if (contentLength != null) {
             builder.contentLength(contentLength);

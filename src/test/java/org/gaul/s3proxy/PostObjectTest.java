@@ -373,6 +373,29 @@ public final class PostObjectTest {
         assertThat(blobStore.list(containerName).contents()).hasSize(1);
     }
 
+    /** The form names the type in a field, as a PUT does in a header. */
+    @Test
+    public void testContentType() throws Exception {
+        HttpResponse<String> response = post(
+                "key", "foo.txt", "Content-Type", "text/plain");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobMetadata(containerName, "foo.txt")
+                .contentType()).isEqualTo("text/plain");
+    }
+
+    /**
+     * A form without that field names no type, and its key does not name
+     * one in its place: a policy that admits no Content-Type field would
+     * otherwise leave the type to whoever picks the key.
+     */
+    @Test
+    public void testKeyExtensionIsNotTheContentType() throws Exception {
+        HttpResponse<String> response = post("key", "foo.html");
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobMetadata(containerName, "foo.html")
+                .contentType()).isEqualTo("binary/octet-stream");
+    }
+
     /**
      * Metadata under the name this proxy keeps a validated checksum by is
      * not the form's to set: it would be reported back as the checksum.

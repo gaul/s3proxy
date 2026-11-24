@@ -365,6 +365,52 @@ public final class Nio2UserAttributesTest {
         assertThat(Files.readAllBytes(outside)).isEqualTo(CONTENT.read());
     }
 
+    /** ... and no type of ours, so one is guessed from its name. */
+    @Test
+    public void testFileWrittenAroundS3ProxyHasAGuessedType(
+            @TempDir Path temp) throws IOException {
+        var real = new FilesystemNio2BlobStore(temp.toString());
+        real.createContainer(CONTAINER);
+        Files.write(temp.resolve(CONTAINER).resolve("outside.html"),
+                CONTENT.read());
+
+        assertThat(real.blobMetadata(CONTAINER, "outside.html").contentType())
+                .isEqualTo("text/html");
+    }
+
+    /**
+     * An object stored through S3Proxy is not guessed at, whatever its key:
+     * one uploaded without a type is stored as binary/octet-stream.
+     */
+    @Test
+    public void testObjectStoredWithoutATypeIsNotGuessedAt()
+            throws IOException {
+        try (var with = Jimfs.newFileSystem(Configuration.unix().toBuilder()
+                .setAttributeViews("posix", "user")
+                .setWorkingDirectory("/")
+                .build())) {
+            var withStore = new Nio2Store(with.getPath("/"));
+            withStore.createContainer(CONTAINER);
+            TestUtils.putBlob(withStore, CONTAINER, "inside.html", CONTENT);
+
+            assertThat(withStore.blobMetadata(CONTAINER, "inside.html")
+                    .contentType()).isEqualTo("binary/octet-stream");
+
+            // Nor is an object that an earlier release stored with no type
+            // at all: it carries an ETag, which a file written around
+            // S3Proxy does not.
+            var view = Files.getFileAttributeView(
+                    with.getPath("/", CONTAINER, "inside.html"),
+                    UserDefinedFileAttributeView.class);
+            // the names the store writes since issue #1264
+            view.delete("content-type");
+            assertThat(view.list()).contains("content-md5");
+
+            assertThat(withStore.blobMetadata(CONTAINER, "inside.html")
+                    .contentType()).isEqualTo("binary/octet-stream");
+        }
+    }
+
     private static String unquote(String eTag) {
         return eTag.replace("\"", "");
     }
