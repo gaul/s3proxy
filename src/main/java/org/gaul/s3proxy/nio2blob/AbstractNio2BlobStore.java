@@ -71,6 +71,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -285,6 +286,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .build();
     /** The version id every write to an unversioned container carries. */
     private static final String NULL_VERSION_ID = "null";
+    /** Every other version id this store mints: see mintVersionId. */
+    private static final Pattern MINTED_VERSION_ID =
+            Pattern.compile("v[0-9]{16,19}");
     private static final int UUID_STRING_LENGTH =
             UUID.randomUUID().toString().length();
     private static final byte[] DIRECTORY_MD5 = MD5.hash(new byte[0]);
@@ -950,6 +954,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private Blob readBlob(String container, String key,
             GetObjectRequest options, boolean openStream) {
         var containerPath = requireContainerPath(container);
+        checkVersionId(options.versionId());
         var path = resolveBlobPath(containerPath, key);
         String versionId = null;
         if (supportsVersioning() &&
@@ -2118,6 +2123,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // below, and deleting a key that is absent succeeds, so without
         // this a delete in a bucket that does not exist would too.
         var containerPath = requireContainerPath(container);
+        checkVersionId(versionId);
         if (!supportsVersioning()) {
             // The literal "null" names the null version, which on an
             // unversioned namespace is the object itself.
@@ -3138,6 +3144,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private Path aclPath(String container, Path containerPath, String key,
             @Nullable String versionId) {
+        checkVersionId(versionId);
         var path = resolveBlobPath(containerPath, key);
         if (!supportsVersioning() ||
                 readContainerStatus(containerPath) == null) {
@@ -4584,6 +4591,23 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return status == BucketVersioningStatus.ENABLED ?
                 "v%016d".formatted(VERSION_SEQUENCE.incrementAndGet()) :
                 NULL_VERSION_ID;
+    }
+
+    /**
+     * Refuses a version id this store could never have minted, as S3 does
+     * one it never issued: InvalidArgument, whether or not the key or the
+     * bucket's versioning exists, where a well-formed id that names nothing
+     * is NoSuchVersion to read and already deleted to delete.  Without this,
+     * a delete answered any string at all as a version deleted and echoed it
+     * in x-amz-version-id, control characters included.  A store that does
+     * not version refuses every id but "null" as not implemented instead.
+     */
+    private void checkVersionId(@Nullable String versionId) {
+        if (versionId != null && supportsVersioning() &&
+                !versionId.equals(NULL_VERSION_ID) &&
+                !MINTED_VERSION_ID.matcher(versionId).matches()) {
+            throw S3Exceptions.invalidArgument("Invalid version id specified");
+        }
     }
 
     private static Instant mintTime() {

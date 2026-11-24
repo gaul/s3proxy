@@ -23,11 +23,16 @@ import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -193,5 +198,81 @@ public final class Nio2VersioningSupportTest {
                     path -> path.getFileName().toString())
                     .containsExactly("blob");
         }
+    }
+
+    /**
+     * A version id this store could never have minted is InvalidArgument,
+     * as S3 answers one it never issued, whether the bucket's versioning was
+     * ever enabled or not.  A delete answered it as a version already
+     * deleted and echoed it -- control characters included -- into
+     * x-amz-version-id.  Verified against AWS: DeleteObject and GetObject
+     * both answer InvalidArgument "Invalid version id specified", on an
+     * unversioned bucket and a versioned one alike.
+     */
+    @Test
+    public void testVersionIdNeverMintedIsInvalidArgument() {
+        put(transientStore, "key");
+        for (var status : java.util.Arrays.asList(null,
+                BucketVersioningStatus.ENABLED)) {
+            if (status != null) {
+                transientStore.putBucketVersioning(CONTAINER, status);
+            }
+            for (String versionId : java.util.List.of("bogus", "a\u007fb",
+                    "v123", "v0000000000000001x")) {
+                String as = status + " " + versionId;
+                assertInvalidVersion(as, () -> transientStore.removeBlob(
+                        DeleteObjectRequest.builder().bucket(CONTAINER)
+                                .key("key").versionId(versionId).build()));
+                assertInvalidVersion(as, () -> transientStore.blobMetadata(
+                        HeadObjectRequest.builder().bucket(CONTAINER)
+                                .key("key").versionId(versionId).build()));
+                assertInvalidVersion(as, () -> transientStore.getBlob(
+                        GetObjectRequest.builder().bucket(CONTAINER)
+                                .key("key").versionId(versionId).build()));
+                assertInvalidVersion(as, () -> transientStore.getBlobAccess(
+                        CONTAINER, "key", versionId));
+                // nor did the refused delete touch the key
+                assertThat(transientStore.blobExists(CONTAINER, "key"))
+                        .as(as).isTrue();
+            }
+        }
+
+        // A well-formed id that names nothing is, as before, a version
+        // already deleted: S3 answers 204 and echoes it.
+        String absent = "v9999999999999999";
+        assertThat(transientStore.removeBlob(DeleteObjectRequest.builder()
+                .bucket(CONTAINER).key("key").versionId(absent).build())
+                .versionId()).isEqualTo(absent);
+        assertThatThrownBy(() -> transientStore.blobMetadata(
+                HeadObjectRequest.builder().bucket(CONTAINER).key("key")
+                        .versionId(absent).build()))
+                .isInstanceOfSatisfying(AwsServiceException.class,
+                        e -> assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NoSuchVersion"));
+
+        // The filesystem store does not version, and still says so.
+        put(filesystemStore, "key");
+        assertThatThrownBy(() -> filesystemStore.removeBlob(
+                DeleteObjectRequest.builder().bucket(CONTAINER).key("key")
+                        .versionId("bogus").build()))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static void put(AbstractNio2BlobStore store, String key) {
+        store.putBlob(PutObjectRequest.builder()
+                .bucket(CONTAINER).key(key).contentLength(0L).build(),
+                new ByteArrayInputStream(new byte[0]));
+    }
+
+    private static void assertInvalidVersion(String as,
+            ThrowingCallable call) {
+        assertThatThrownBy(call).as(as)
+                .isInstanceOfSatisfying(AwsServiceException.class, e -> {
+                    assertThat(e.statusCode()).as(as).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode()).as(as)
+                            .isEqualTo("InvalidArgument");
+                    assertThat(e.awsErrorDetails().errorMessage()).as(as)
+                            .isEqualTo("Invalid version id specified");
+                });
     }
 }
