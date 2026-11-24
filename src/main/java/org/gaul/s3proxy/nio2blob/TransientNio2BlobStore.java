@@ -24,9 +24,26 @@ import com.google.common.jimfs.Jimfs;
 public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
 
     public TransientNio2BlobStore() {
+        // Jimfs keeps file content in blocks on the heap, and its defaults
+        // take no account of how large that heap is.  It reports that it is
+        // full at 4 GiB, so on a smaller heap an upload exhausted the JVM
+        // instead of being refused: bound it by half of the heap, which
+        // leaves the rest to the requests.
+        this(Math.min(Configuration.Builder.DEFAULT_MAX_SIZE,
+                Runtime.getRuntime().maxMemory() / 2));
+    }
+
+    /** A store that is full at this many bytes, for tests of a full one. */
+    TransientNio2BlobStore(long maxSize) {
+        // Without a limit of its own, Jimfs keeps every block a deleted file
+        // gives up for reuse: the store held the most it had ever held until
+        // the process exited, an upload that was refused and stored nothing
+        // included.  Leave those blocks to the garbage collector.
         this(Jimfs.newFileSystem(Configuration.unix().toBuilder()
                 .setAttributeViews("posix", "user")
                 .setWorkingDirectory("/")
+                .setMaxSize(maxSize)
+                .setMaxCacheSize(0)
                 .build()));
     }
 

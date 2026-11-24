@@ -19,6 +19,7 @@ package org.gaul.s3proxy.nio2blob;
 import static java.util.Objects.requireNonNull;
 
 import java.io.Closeable;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -1407,10 +1408,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } else {
                 var digest = MD5.newDigest();
                 try (var is = new DigestInputStream(
-                        requireNonNull(blob.getPayload()), digest);
-                     var dst = Files.newByteChannel(tmpPath,
-                             StandardOpenOption.WRITE)) {
-                    holes = writeSparse(is, dst);
+                        requireNonNull(blob.getPayload()), digest)) {
+                    holes = writePayload(is, tmpPath);
                 }
                 actualHashCode = HashCode.fromBytes(digest.digest());
                 var expectedHashCode = metadata.contentMD5();
@@ -4126,6 +4125,65 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             logger.debug("refusing {}, outside {}", path, container);
             throw S3Exceptions.invalidArgument(
                     "The name leads outside the directory it belongs in.");
+        }
+    }
+
+    /**
+     * Writes a payload into a file, sparsely, and reads it to its end even
+     * when the file cannot take all of it, e.g. because the store is full.
+     * That is found out in the middle of a body, and failing there closes
+     * the connection on a client that is still sending, which then sees a
+     * reset instead of the answer.  So what was written is given back at
+     * once, the remainder is read and dropped, as all of a body with the
+     * wrong digest is, and the failure is reported after it.  A failure to
+     * read the payload -- the client gone, a digest that does not match --
+     * is reported as it comes.
+     *
+     * @return the number of bytes left as holes
+     */
+    private static long writePayload(InputStream is, Path path)
+            throws IOException {
+        var reads = new ReadFailures(is);
+        IOException refused;
+        try (var dst = Files.newByteChannel(path, StandardOpenOption.WRITE)) {
+            return writeSparse(reads, dst);
+        } catch (IOException ioe) {
+            if (reads.failed) {
+                throw ioe;
+            }
+            refused = ioe;
+        }
+        Files.deleteIfExists(path);
+        is.transferTo(OutputStream.nullOutputStream());
+        throw refused;
+    }
+
+    /** A payload that says whether a read of it failed. */
+    private static final class ReadFailures extends FilterInputStream {
+        private boolean failed;
+
+        ReadFailures(InputStream in) {
+            super(in);
+        }
+
+        @Override
+        public int read() throws IOException {
+            try {
+                return super.read();
+            } catch (IOException | RuntimeException e) {
+                failed = true;
+                throw e;
+            }
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            try {
+                return super.read(b, off, len);
+            } catch (IOException | RuntimeException e) {
+                failed = true;
+                throw e;
+            }
         }
     }
 
