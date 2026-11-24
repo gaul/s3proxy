@@ -150,6 +150,19 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     private static final String VERSION_ID_HEADER = "x-amz-version-id";
 
     private final S3Client s3Client;
+    /**
+     * Serves getBlob alone, from a connection pool of its own.  The stream a
+     * read answers with keeps its connection until the caller closes it, and
+     * a caller that writes that stream back to this store -- the frontend
+     * copying a part through a middleware that cannot leave the copy to the
+     * backend -- asks for a second connection while it holds the first.  Out
+     * of one pool, as many such callers as it has connections hold all of
+     * them and wait on one another until the SDK gives up, and every other
+     * request to the store waits with them.  No call through s3Client
+     * outlives itself, so a caller that holds a read always gets its turn
+     * there.
+     */
+    private final S3Client s3ReadClient;
     private final @Nullable String endpoint;
     private final boolean useNativeConditionalWrites;
     private final boolean stripETagQuotes;
@@ -204,6 +217,9 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         builder.region(this.awsRegion);
 
         this.s3Client = builder.build();
+        // Each build gives the client an HTTP client, and so a connection
+        // pool, of its own.
+        this.s3ReadClient = builder.build();
     }
 
     /**
@@ -239,11 +255,15 @@ public final class AwsS3SdkBlobStore implements BlobStore {
         };
     }
 
-    // Releases the SDK client's connection pool and background threads when
+    // Releases the SDK clients' connection pools and background threads when
     // the BlobStore is closed.
     @Override
     public void close() {
-        s3Client.close();
+        try {
+            s3ReadClient.close();
+        } finally {
+            s3Client.close();
+        }
     }
 
     @Override
@@ -382,7 +402,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                     .build();
         }
         try {
-            return abandonable(s3Client.getObject(request));
+            return abandonable(s3ReadClient.getObject(request));
         } catch (S3Exception e) {
             // 304, 405 on a delete marker read, NoSuchVersion and the rest
             // pass through verbatim; the response headers, e.g. ETag and
@@ -543,7 +563,7 @@ public final class AwsS3SdkBlobStore implements BlobStore {
                 pinned.ifMatch(eTag);
             }
             try {
-                return abandonable(s3Client.getObject(pinned.build()));
+                return abandonable(s3ReadClient.getObject(pinned.build()));
             } catch (S3Exception e) {
                 if (versionId == null && e.statusCode() == 412) {
                     if (attempt < PUBLIC_READ_ATTEMPTS) {
