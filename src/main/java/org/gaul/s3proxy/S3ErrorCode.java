@@ -87,6 +87,8 @@ public enum S3ErrorCode {
             "The provided token is malformed or otherwise invalid."),
     INVALID_U_R_I(HttpServletResponse.SC_BAD_REQUEST,
             "Couldn't parse the specified URI."),
+    KEY_TOO_LONG_ERROR(HttpServletResponse.SC_BAD_REQUEST,
+            "Your key is too long"),
     MALFORMED_A_C_L_ERROR(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),

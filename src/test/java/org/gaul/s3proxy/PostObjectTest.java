@@ -219,6 +219,41 @@ public final class PostObjectTest {
                 .contains("User key must have a length greater than 0.");
     }
 
+    /**
+     * The key is measured before the file name is substituted into it, not
+     * after: the result is as long as the two multiplied, and a form no one
+     * has authorized would otherwise have megabytes built from kilobytes.
+     */
+    @Test
+    public void testFilenameSubstitutionIsBoundedByKeyLength()
+            throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        String name = "a".repeat(510);
+        String longest = name + "/" + name + "/ab";
+        assertThat(postFileNamed(name, "${filename}/${filename}/ab")
+                .statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobExists(containerName, longest)).isTrue();
+
+        HttpResponse<String> response = postFileNamed(name,
+                "${filename}/${filename}/abc");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>KeyTooLongError</Code>");
+        assertThat(blobStore.blobExists(containerName, longest + "c"))
+                .isFalse();
+
+        // 13 KB of form asking for a key of 4 MB
+        response = postFileNamed("a".repeat(7000), "${filename}".repeat(600));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("<Code>KeyTooLongError</Code>");
+
+        // what is bounded is the key, and a short name makes a shorter one
+        assertThat(postFileNamed("abc", "${filename}".repeat(100))
+                .statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobExists(containerName, "abc".repeat(100)))
+                .isTrue();
+    }
+
     @Test
     public void testUserMetadata() throws Exception {
         HttpResponse<String> response = post(
@@ -294,11 +329,12 @@ public final class PostObjectTest {
         assertThat(response.body()).contains(
                 "<Code>MaxPostPreDataLengthExceededError</Code>");
 
+        // a key the substitution would make too long is refused before
+        // it is built
         response = postFile("x".repeat(1024),
                 "key", "${filename}".repeat(32));
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(response.body()).contains(
-                "<Code>MaxPostPreDataLengthExceededError</Code>");
+        assertThat(response.body()).contains("<Code>KeyTooLongError</Code>");
         assertThat(blobStore.list(containerName).contents()).hasSize(1);
     }
 
@@ -715,6 +751,21 @@ public final class PostObjectTest {
                         "multipart/form-data; boundary=" + BOUNDARY)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(
                         out.toByteArray()))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** A form of a key and a file part of the given name, and no more. */
+    private HttpResponse<String> postFileNamed(String fileName, String key)
+            throws Exception {
+        String form = "--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
+                " name=\"key\"\r\n\r\n" + key + "\r\n" +
+                "--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
+                " name=\"file\"; filename=\"" + fileName + "\"\r\n\r\nbar\r\n" +
+                "--" + BOUNDARY + "--\r\n";
+        return httpClient.send(HttpRequest.newBuilder(URI.create(bucketUri))
+                .header("Content-Type",
+                        "multipart/form-data; boundary=" + BOUNDARY)
+                .POST(HttpRequest.BodyPublishers.ofString(form))
                 .build(), HttpResponse.BodyHandlers.ofString());
     }
 }

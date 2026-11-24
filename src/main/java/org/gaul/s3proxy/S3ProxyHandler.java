@@ -305,6 +305,8 @@ public class S3ProxyHandler {
      * headers.
      */
     private static final long MAX_FORM_FIELDS_LENGTH = 20 * 1024;
+    /** The longest key S3 allows, in bytes of its UTF-8 encoding. */
+    private static final int MAX_BLOB_NAME_LENGTH = 1024;
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
     /** A SHA-256 as x-amz-content-sha256 spells it. */
@@ -6420,11 +6422,26 @@ public class S3ProxyHandler {
         // sent.  A form that names ${filename} and a policy that requires the
         // key to start with "foo" agree only after this.
         if (blobName != null && blobName.contains("${filename}")) {
-            blobName = blobName.replace("${filename}",
-                    Strings.nullToEmpty(fileName));
-            // A key may name the file any number of times, and must not
-            // come out longer than one the form could have spelled out.
-            checkFormFieldsLength(blobName.length());
+            String placeholder = "${filename}";
+            String name = Strings.nullToEmpty(fileName);
+            // Nothing has authorized this form yet, and the substitution
+            // multiplies one part of it by another: a body divided between
+            // placeholders and file name makes a key quadratic in its
+            // length, megabytes for every kilobyte sent, which no bound on
+            // the body bounds.  Work out how long the key would be, and
+            // refuse one longer than S3 allows before building it rather
+            // than after.  Every char encodes to at least one byte, so no
+            // key S3 accepts is refused.
+            long length = blobName.length();
+            for (int i = blobName.indexOf(placeholder); i != -1;
+                    i = blobName.indexOf(placeholder,
+                            i + placeholder.length())) {
+                length += name.length() - placeholder.length();
+            }
+            if (length > MAX_BLOB_NAME_LENGTH) {
+                throw new S3ProxyException(S3ErrorCode.KEY_TOO_LONG_ERROR);
+            }
+            blobName = blobName.replace(placeholder, name);
             fields.put("key", blobName);
         }
         // The bucket a condition is matched against is the one being written
