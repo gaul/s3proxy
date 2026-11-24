@@ -284,6 +284,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * <p>An ACL request that names a version holds it as well, from finding
      * the version's file to reading or changing it: the current version's
      * file is the key's own path, which that rename gives to the successor.
+     *
+     * <p>Every store also holds it for what it does to a directory, be that
+     * the object of a slash key or where the keys below it live -- storing
+     * that object, deleting either -- and for the rename or link that puts a
+     * file at a key's path.  "key" and "key/" share a path, and a directory
+     * is acted on through the path after looking what is there.  Without the
+     * lock the object "key" published in between is given the directory
+     * marker's ETag, metadata and customer key, or is deleted in its place.
      */
     private final Object versionLock = new Object();
     /**
@@ -1187,65 +1195,68 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             } catch (IOException ioe) {
                 throw new RuntimeException(ioe);
             }
-            // the conditions a write to any other key is held to
-            if (ifNoneMatch != null && Files.isDirectory(path) &&
-                    safeGetXattrs(path).attributes().contains(
-                            XATTR_CONTENT_MD5) &&
-                    (ifNoneMatch.equals("*") || maybeQuoteETag(ifNoneMatch)
-                            .equals(maybeQuoteETag(HexFormat.of().formatHex(
-                                    DIRECTORY_MD5))))) {
-                throw returnResponseException(412);
-            }
-            try {
-                logger.debug("Creating directory blob: {}", path);
-                Files.createDirectories(path);
-            } catch (FileAlreadyExistsException faee) {
-                if (!Files.isDirectory(path)) {
-                    // "key/" resolves to the file that is the object "key",
-                    // or lies under one.  Carrying on would write this
-                    // marker's ETag and metadata onto that object.
-                    throw S3Exceptions.invalidArgument("The key names a" +
-                            " directory where an object already has that" +
-                            " name without the trailing slash, which this" +
-                            " filesystem cannot store.");
+            // Looked at, made and written under the lock that publishing
+            // holds, because all of it goes through the path: the object
+            // "key" published once the directory was made or found would
+            // otherwise be given this marker's ETag, metadata and customer
+            // key.
+            synchronized (versionLock) {
+                // the conditions a write to any other key is held to
+                if (ifNoneMatch != null && Files.isDirectory(path) &&
+                        safeGetXattrs(path).attributes().contains(
+                                XATTR_CONTENT_MD5) &&
+                        (ifNoneMatch.equals("*") || maybeQuoteETag(ifNoneMatch)
+                                .equals(maybeQuoteETag(HexFormat.of().formatHex(
+                                        DIRECTORY_MD5))))) {
+                    throw returnResponseException(412);
                 }
-                logger.debug("Parent directories already exist: {}", path.getParent());
-            } catch (IOException ioe) {
-                throw new RuntimeException(ioe);
-            }
-
-            // The directory is the object and its mode is the object's ACL,
-            // as a file's is.  Nothing chose the mode it was made with, now
-            // or earlier to hold a key below it, and that mode usually lets
-            // others read, so set it before the marker makes it an object.
-            setBlobAccessHelper(path, access);
-
-            var view = getXattrView(path);
-            if (view != null) {
                 try {
-                    // A marker written again replaces its metadata; the
-                    // directory is the same one, so what the last write
-                    // left has to be taken off it first.
-                    for (String name : view.list()) {
-                        if (METADATA_ATTRIBUTES.contains(name) ||
-                                name.startsWith(XATTR_USER_METADATA_PREFIX)) {
-                            view.delete(name);
+                    logger.debug("Creating directory blob: {}", path);
+                    Files.createDirectories(path);
+                } catch (FileAlreadyExistsException faee) {
+                    if (!Files.isDirectory(path)) {
+                        // "key/" resolves to the file that is the object "key",
+                        // or lies under one.  Carrying on would write this
+                        // marker's ETag and metadata onto that object.
+                        throw S3Exceptions.invalidArgument("The key names a" +
+                                " directory where an object already has that" +
+                                " name without the trailing slash, which this" +
+                                " filesystem cannot store.");
+                    }
+                    logger.debug("Parent directories already exist: {}", path.getParent());
+                } catch (IOException ioe) {
+                    throw new RuntimeException(ioe);
+                }
+
+                // The directory is the object and its mode is the object's ACL,
+                // as a file's is.  Nothing chose the mode it was made with, now
+                // or earlier to hold a key below it, and that mode usually lets
+                // others read, so set it before the marker makes it an object.
+                setBlobAccessHelper(path, access);
+
+                var view = getXattrView(path);
+                if (view != null) {
+                    try {
+                        // A marker written again replaces its metadata; the
+                        // directory is the same one, so what the last write
+                        // left has to be taken off it first.
+                        for (String name : view.list()) {
+                            if (METADATA_ATTRIBUTES.contains(name) ||
+                                    name.startsWith(XATTR_USER_METADATA_PREFIX)) {
+                                view.delete(name);
+                            }
+                        }
+                        writeCommonMetadataAttr(view, blob);
+                        view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
+                    } catch (IOException | UnsupportedOperationException e) {
+                        try {
+                            attributeWriteFailed(path, e);
+                        } catch (IOException ioe) {
+                            throw new RuntimeException(ioe);
                         }
                     }
-                    writeCommonMetadataAttr(view, blob);
-                    view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
-                } catch (IOException | UnsupportedOperationException e) {
-                    try {
-                        attributeWriteFailed(path, e);
-                    } catch (IOException ioe) {
-                        throw new RuntimeException(ioe);
-                    }
                 }
             }
-
-            // There is no temporary file to carry the access into place, so
-            // it goes on the marker directly.
-            setBlobAccessHelper(path, access);
 
             // A directory marker is the directory itself, which the versions
             // of the keys below it live in; it is not versioned.
@@ -1405,7 +1416,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // already written to tmpPath carry over.
                 publishLock.writeLock().lock();
                 try {
-                    intoParent(tmpPath, path, () -> Files.createLink(path, tmpPath));
+                    synchronized (versionLock) {
+                        intoParent(tmpPath, path,
+                                () -> Files.createLink(path, tmpPath));
+                    }
                 } catch (FileAlreadyExistsException faee) {
                     throw returnResponseException(412);
                 } catch (UnsupportedOperationException uoe) {
@@ -1414,8 +1428,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (Files.exists(path)) {
                         throw returnResponseException(412);
                     }
-                    intoParent(tmpPath, path, () -> Files.move(tmpPath, path,
-                            StandardCopyOption.ATOMIC_MOVE));
+                    synchronized (versionLock) {
+                        intoParent(tmpPath, path, () -> Files.move(tmpPath,
+                                path, StandardCopyOption.ATOMIC_MOVE));
+                    }
                 } finally {
                     publishLock.writeLock().unlock();
                 }
@@ -1501,8 +1517,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // prefixes over no keys and keep the bucket from being deleted.
             if (!published) {
                 try {
-                    removeEmptyParentDirectories(containerPath,
-                            path.getParent());
+                    synchronized (versionLock) {
+                        removeEmptyParentDirectories(containerPath,
+                                path.getParent());
+                    }
                 } catch (IOException ioe) {
                     logger.debug("unable to remove parents of {}", path, ioe);
                 }
@@ -1600,11 +1618,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private void publish(Path source, Path target, CopyOption... options)
             throws IOException {
-        publishLock.writeLock().lock();
-        try {
-            Files.move(source, target, options);
-        } finally {
-            publishLock.writeLock().unlock();
+        // versionLock first, as the versioned publish takes it: no read
+        // holding the shared side of publishLock ever waits on versionLock
+        synchronized (versionLock) {
+            publishLock.writeLock().lock();
+            try {
+                Files.move(source, target, options);
+            } finally {
+                publishLock.writeLock().unlock();
+            }
         }
     }
 
@@ -1886,7 +1908,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // prefix other keys live under -- is not versioned, so a delete of
         // one is the ordinary delete, which knows to keep the directory for
         // the objects inside it.
-        if (status == null || Files.isDirectory(path) || key.endsWith("/")) {
+        if (status == null || key.endsWith("/")) {
             removeBlobInternal(container, key);
             return DeleteObjectResponse.builder().build();
         }
@@ -1895,6 +1917,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var markerId = mintVersionId(status);
         try {
             synchronized (versionLock) {
+                if (Files.isDirectory(path)) {
+                    // Without the slash the directory is no object, and
+                    // there is nothing to delete.  Looked at under the lock:
+                    // the ordinary delete looks again, and would remove the
+                    // version published there since.
+                    return DeleteObjectResponse.builder().build();
+                }
                 archiveCurrentVersion(containerPath, path, key, markerId,
                         /*replacing=*/ false);
                 Files.deleteIfExists(path);
@@ -2003,33 +2032,38 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private void removeBlobInternal(String container, String key) {
         var containerPath = resolveContainer(container);
         var path = resolveBlobPath(containerPath, key);
-        if (!key.endsWith("/") && Files.isDirectory(path)) {
-            // POSIX path normalization conflates "key" with "key/";
-            // a non-slash key must not match a directory marker.
-            return;
-        }
-        if (key.endsWith("/") && Files.isRegularFile(path)) {
-            // Nor a slash key the object of the same name without it, which
-            // deleting "key/" used to remove.
-            return;
-        }
-        try {
-            logger.debug("Deleting blob at: {}", path);
-            Files.delete(path);
-            removeEmptyParentDirectories(containerPath, path.getParent());
-        } catch (NoSuchFileException nsfe) {
-            return;
-        } catch (DirectoryNotEmptyException dnee) {
-            clearDirectoryMarker(path);
-        } catch (IOException ioe) {
-            if (key.endsWith("/") && Files.isDirectory(path)) {
-                // An SFTP server reports the non-empty directory as a
-                // generic failure (SSH_FX_DIR_NOT_EMPTY) that the provider
-                // does not map to DirectoryNotEmptyException.
-                clearDirectoryMarker(path);
+        // The path is looked at and then deleted, and "key" and "key/" share
+        // it: under the lock that publishing holds, so that the one is not
+        // published between the two and deleted for the other.
+        synchronized (versionLock) {
+            if (!key.endsWith("/") && Files.isDirectory(path)) {
+                // POSIX path normalization conflates "key" with "key/";
+                // a non-slash key must not match a directory marker.
                 return;
             }
-            throw new RuntimeException(ioe);
+            if (key.endsWith("/") && Files.isRegularFile(path)) {
+                // Nor a slash key the object of the same name without it,
+                // which deleting "key/" used to remove.
+                return;
+            }
+            try {
+                logger.debug("Deleting blob at: {}", path);
+                Files.delete(path);
+                removeEmptyParentDirectories(containerPath, path.getParent());
+            } catch (NoSuchFileException nsfe) {
+                return;
+            } catch (DirectoryNotEmptyException dnee) {
+                clearDirectoryMarker(path);
+            } catch (IOException ioe) {
+                if (key.endsWith("/") && Files.isDirectory(path)) {
+                    // An SFTP server reports the non-empty directory as a
+                    // generic failure (SSH_FX_DIR_NOT_EMPTY) that the provider
+                    // does not map to DirectoryNotEmptyException.
+                    clearDirectoryMarker(path);
+                    return;
+                }
+                throw new RuntimeException(ioe);
+            }
         }
     }
 
@@ -3343,6 +3377,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     /**
      * AbstractNio2BlobStore implicitly creates directories when creating a key /a/b/c.
      * When removing /a/b/c, it must clean up /a and /a/b, unless a client explicitly created a subdirectory which has file attributes.
+     * The caller holds versionLock: /a/b is also where the key a/b is stored,
+     * and published between the look and the delete it is the object that
+     * would be deleted.
      */
     private static void removeEmptyParentDirectories(Path containerPath, @Nullable Path path) throws IOException {
         logger.debug("removing empty parents: {}", path);
