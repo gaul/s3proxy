@@ -41,6 +41,7 @@ import java.util.Random;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
@@ -1699,6 +1700,92 @@ public final class EncryptedBlobStoreTest {
 
         assertThat(result.response().contentRange())
             .isEqualTo("bytes 0-0/" + content.length());
+    }
+
+    /**
+     * The store below is asked for the ciphertext a range needs and no
+     * more.  A range that began at byte 0 used to be read through to the end
+     * of the object whatever its own end, and what the client never took
+     * was still the backend's to send: over S3 a one byte read of a large
+     * object downloaded all of it, on a connection held until it had.
+     */
+    @Test
+    public void testRangeReadsOnlyWhatItNeeds() throws Exception {
+        var ranges = new ArrayList<SdkRequests.ByteRange>();
+        Consumer<SdkRequests.ByteRange> narrow = read -> {
+            assertThat(read).isNotNull();
+            assertThat(read.last() - read.first()).isBetween(0L, 1024L);
+        };
+        BlobStore recording = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                ranges.add(SdkRequests.parseRange(request.range()));
+                return super.getBlob(request);
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            recording, encryptionProperties);
+
+        String blobName = TestUtils.createRandomBlobName();
+        byte[] single = filler(0, 64 * 1024);
+        encrypted.putBlob(
+            makeRequest(containerName, blobName, single.length),
+            new ByteArrayInputStream(single));
+        var multipart = uploadMultipartContent();
+
+        var blobs = Map.of(blobName, single,
+            multipart.blobName, multipart.content);
+        long[] farPastTheEnd = {Long.MAX_VALUE - 1, Long.MAX_VALUE};
+        for (var blob : blobs.entrySet()) {
+            String name = blob.getKey();
+            byte[] content = blob.getValue();
+
+            for (int end : new int[] {0, 15, 16, 99}) {
+                ranges.clear();
+                String range = "bytes=0-" + end;
+                try (var is = encrypted.getBlob(rangeRequest(
+                        containerName, name, range))) {
+                    assertThat(is.readAllBytes()).as(range).isEqualTo(
+                        Arrays.copyOf(content, end + 1));
+                }
+                assertThat(ranges).as(range).isNotEmpty().allSatisfy(narrow);
+            }
+
+            // An end past the last byte reads to the last byte, however
+            // far past: the arithmetic on it must not overflow.
+            for (long start : new long[] {0, 5}) {
+                for (long end : farPastTheEnd) {
+                    String range = SdkRequests.range(start, end);
+                    try (var is = encrypted.getBlob(rangeRequest(
+                            containerName, name, range))) {
+                        assertThat(is.readAllBytes()).as(range).isEqualTo(
+                            Arrays.copyOfRange(content, (int) start,
+                                content.length));
+                    }
+                }
+            }
+
+            // A range with nothing of the object in it is refused here,
+            // not handed down as a range of the ciphertext: that one
+            // may run backwards, which a backend is free to ignore and
+            // answer with everything it holds.
+            long beyond = content.length + 1000L;
+            for (String range : List.of(
+                    "bytes=-0",
+                    "bytes=" + content.length + "-",
+                    "bytes=" + content.length + "-" + content.length,
+                    "bytes=" + beyond + "-",
+                    "bytes=" + beyond + "-" + beyond)) {
+                ranges.clear();
+                var e = Assertions.assertThrows(AwsServiceException.class,
+                    () -> encrypted.getBlob(rangeRequest(
+                        containerName, name, range)), range);
+                assertThat(e.statusCode()).as(range).isEqualTo(416);
+                assertThat(ranges).as(range).allSatisfy(narrow);
+            }
+        }
     }
 
     /**

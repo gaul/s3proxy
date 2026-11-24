@@ -91,6 +91,10 @@ public class Decryption {
     }
 
     public final long calculateEndAt(long endAt) {
+        // an end past the last byte reads no further than the last byte,
+        // and must not overflow what is added to it below
+        endAt = Math.min(endAt, unencryptedSize - 1);
+
         // need to have always one more
         endAt++;
 

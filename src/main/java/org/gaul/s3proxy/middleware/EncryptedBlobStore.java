@@ -592,8 +592,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                     if (offset == 0 && end > 0 && length == end) {
                         // handle to read from the end
                         startAt = decryption.calculateTail();
-                    } else if (offset > 0 && end > 0) {
-                        // handle to read from an offset
+                    } else if (range.first() != null &&
+                            range.last() != null) {
+                        // handle to read up to an end, from byte 0 as from
+                        // any other offset: reading on to the end of the
+                        // object has the store send all of it for one byte
                         endAt = decryption.calculateEndAt(end);
                     }
 
