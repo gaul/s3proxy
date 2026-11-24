@@ -3391,48 +3391,54 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             listMultipartUploads(String container) {
         var mpus = ImmutableList.<software.amazon.awssdk.services.s3
                 .model.MultipartUpload>builder();
-        var options = ListObjectsV2Request.builder()
+        // An upload is its stub; its parts lie beside it under the same
+        // prefix, and listing every one of them held an entry per part in
+        // the bucket, on a request a public-read bucket answers unsigned.
+        // Only the stubs are kept, and a part's attributes are not read.
+        var stubs = new TreeMap<String, S3Object>();
+        walk(ListObjectsV2Request.builder()
                 .bucket(container)
-                .prefix(MULTIPART_PREFIX).build();
-        while (true) {
-            var pageSet = list(options, /*includeMultipart=*/ true);
-            for (S3Object sm : pageSet.contents()) {
-                if (!sm.key().endsWith("-stub")) {
-                    continue;
-                }
-                // A name this store did not write -- one left in the
-                // container by hand, or by a client back when the namespace
-                // was writable -- must not decide whether the bucket's real
-                // uploads can be listed at all, which is what letting the
-                // arithmetic below run off the end of it did.
-                if (sm.key().length() <=
-                        MULTIPART_PREFIX.length() + UUID_STRING_LENGTH) {
-                    logger.warn("ignoring multipart stub too short to name an" +
-                            " upload: {}", sm.key());
-                    continue;
-                }
-                var uploadId = sm.key().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
-                var blobName = sm.key().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
-                int index = blobName.lastIndexOf('-');
-                if (index < 0) {
-                    logger.warn("ignoring multipart stub without a blob name:" +
-                            " {}", sm.key());
-                    continue;
-                }
-                blobName = blobName.substring(0, index);
+                .prefix(MULTIPART_PREFIX).build(),
+                /*includeMultipart=*/ true, new ListSink() {
+                    @Override
+                    public boolean wants(String name) {
+                        return name.endsWith("-stub");
+                    }
 
-                // The stub is written when the upload is created and never
-                // again, so its time is the upload's.
-                mpus.add(SdkResponses.upload(blobName, uploadId,
-                        sm.lastModified()));
+                    @Override
+                    public void add(ListEntry entry) {
+                        var object = entry.object();
+                        if (object != null && wants(object.key())) {
+                            stubs.putIfAbsent(object.key(), object);
+                        }
+                    }
+                });
+        for (S3Object sm : stubs.values()) {
+            // A name this store did not write -- one left in the
+            // container by hand, or by a client back when the namespace
+            // was writable -- must not decide whether the bucket's real
+            // uploads can be listed at all, which is what letting the
+            // arithmetic below run off the end of it did.
+            if (sm.key().length() <=
+                    MULTIPART_PREFIX.length() + UUID_STRING_LENGTH) {
+                logger.warn("ignoring multipart stub too short to name an" +
+                        " upload: {}", sm.key());
+                continue;
             }
-            if (pageSet.contents().isEmpty() ||
-                    pageSet.nextContinuationToken() == null) {
-                break;
+            var uploadId = sm.key().substring(MULTIPART_PREFIX.length(), MULTIPART_PREFIX.length() + UUID_STRING_LENGTH);
+            var blobName = sm.key().substring(MULTIPART_PREFIX.length() + UUID_STRING_LENGTH + 1);
+            int index = blobName.lastIndexOf('-');
+            if (index < 0) {
+                logger.warn("ignoring multipart stub without a blob name:" +
+                        " {}", sm.key());
+                continue;
             }
-            options = options.toBuilder()
-                    .continuationToken(pageSet.nextContinuationToken())
-                    .build();
+            blobName = blobName.substring(0, index);
+
+            // The stub is written when the upload is created and never
+            // again, so its time is the upload's.
+            mpus.add(SdkResponses.upload(blobName, uploadId,
+                    sm.lastModified()));
         }
 
         return mpus.build();
