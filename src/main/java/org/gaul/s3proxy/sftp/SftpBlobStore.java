@@ -32,7 +32,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.security.PublicKey;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -330,8 +329,10 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
          * What the listing said answers once, so that a path which is kept
          * is asked about again.  The server is still asked about a symbolic
          * link, which the listing describes rather than what it leads to,
-         * and about an entry whose description leaves out its kind, size or
-         * time.
+         * and about an entry whose description leaves out its kind or time,
+         * or a file's size.  A directory's size is nothing an object
+         * reports, and servers leave it out: MINA's does, and requiring it
+         * cost a round trip per directory a listing walked.
          */
         @Override
         public <A extends BasicFileAttributes> A readAttributes(Path path,
@@ -340,12 +341,12 @@ public final class SftpBlobStore extends AbstractNio2BlobStore {
                 var attributes = listed.getAttributes();
                 if (attributes != null) {
                     listed.setAttributes(null);
+                    var flags = attributes.getFlags();
                     if (type.isAssignableFrom(PosixFileAttributes.class) &&
+                            flags.contains(SftpClient.Attribute.ModifyTime) &&
                             (attributes.isDirectory() ||
-                            attributes.isRegularFile()) &&
-                            attributes.getFlags().containsAll(EnumSet.of(
-                                    SftpClient.Attribute.Size,
-                                    SftpClient.Attribute.ModifyTime))) {
+                            (attributes.isRegularFile() && flags.contains(
+                                    SftpClient.Attribute.Size)))) {
                         return type.cast(new SftpPosixFileAttributes(path,
                                 attributes));
                     }

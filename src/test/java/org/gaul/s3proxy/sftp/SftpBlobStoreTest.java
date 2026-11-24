@@ -509,6 +509,48 @@ public final class SftpBlobStoreTest {
         }
     }
 
+    /**
+     * Nor about a directory the listing descends into, which its entry in
+     * the directory above has already described: it cost two round trips
+     * per directory.
+     */
+    @Test
+    public void testListingDoesNotAskAboutEachDirectory() throws Exception {
+        var stats = new AtomicInteger();
+        var sftp = new SftpSubsystemFactory.Builder().build();
+        sftp.addSftpEventListener(new SftpEventListener() {
+            @Override
+            public void received(ServerSession session, int type, int id) {
+                if (type == SftpConstants.SSH_FXP_STAT ||
+                        type == SftpConstants.SSH_FXP_LSTAT) {
+                    stats.incrementAndGet();
+                }
+            }
+        });
+        var hostKeyProvider = startSftpServer(SshServer.setUpDefaultServer(),
+                sftp);
+
+        try (var blobStore = buildBlobStore(hostKeyFingerprint(
+                hostKeyProvider))) {
+            var bucket = "bucket";
+            int directories = 30;
+            blobStore.createContainer(bucket);
+            for (int i = 0; i < directories; ++i) {
+                putBlob(blobStore, bucket, "dir-" + i + "/object", "value");
+            }
+
+            stats.set(0);
+            var all = blobStore.list(ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .build());
+            assertThat(all.contents()).hasSize(directories);
+            // a few for the bucket itself, where it was two a directory:
+            // whether it was one, and its attributes again, which the
+            // server describes without a size
+            assertThat(stats.get()).isLessThan(directories / 3);
+        }
+    }
+
     private void assertFailedOverwriteKeepsObject(SshServer server)
             throws Exception {
         var failRenames = new AtomicBoolean();

@@ -556,8 +556,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         logger.debug("Listing blobs at: {}", pathPrefix);
         var pathPrefixString = root.resolve(pathPrefix).toAbsolutePath().toString();
         try {
-            listHelper(sink, containerPath, dirPrefix, pathPrefixString,
-                    delimiter, filterMultipart);
+            // Only where the walk starts can the directory be a file, or
+            // missing, which some servers answer an attempt to read with no
+            // error saying so; below it, listEntry has just found each
+            // directory to be one, and asking again cost a round trip per
+            // directory over SFTP.
+            if (Files.isDirectory(dirPrefix)) {
+                listHelper(sink, containerPath, dirPrefix, pathPrefixString,
+                        delimiter, filterMultipart);
+            }
 
             // listHelper leaves the "/" key's reserved name out, and a
             // client can store that key: left out too, it was an object no
@@ -713,9 +720,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
         logger.debug("recursing at: {} with prefix: {}", parent, pathPrefixString);
-        if (!Files.isDirectory(parent)) {
-            return;
-        }
         try (var stream = openDirectoryStreamIfPresent(parent)) {
             if (stream == null) {
                 // The directory was removed between the caller finding it
@@ -792,56 +796,55 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             Path containerPath, Path path, String pathPrefixString,
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
+        // the "/" key's backing store lists under its key, not its name
+        var name = path.equals(containerPath.resolve(SLASH_BLOB_NAME)) ?
+                "" : relativeName(containerPath, path);
+        // The entry is an object of this name, or a directory, whose own
+        // entry and everything below it begin with name + "/".  When the
+        // page can keep neither, its attributes are not read: a page used
+        // to stat every entry of each directory it walked, those before
+        // the marker and after the page's end too, so paging through a
+        // directory cost a stat of each of its entries for every page.
+        if (!builder.wants(name) && !builder.wantsUnder(name + "/")) {
+            return;
+        }
         var attr = Files.readAttributes(path, BasicFileAttributes.class);
         if (attr.isDirectory()) {
-            // the "/" key's backing store lists under its key, not its name
-            var name = path.equals(containerPath.resolve(SLASH_BLOB_NAME)) ?
-                    "" : relativeName(containerPath, path);
             if (!"/".equals(delimiter) && builder.wantsUnder(name + "/")) {
                 listHelper(builder, containerPath, path, pathPrefixString,
                         delimiter, filterMultipart);
             }
+            // nor are its extended attributes, which only an entry the
+            // page keeps reports
+            if (!builder.wants(name + "/")) {
+                return;
+            }
 
-            var dirXattrs = safeGetXattrs(path);
-            var markerExists = dirXattrs.attributes()
-                    .contains(XATTR_CONTENT_MD5);
-
-            // Add a prefix if the directory blob exists or if the delimiter causes us not to recuse.
-            if ("/".equals(delimiter) || markerExists) {
+            // With a delimiter this entry is a common prefix, whether or
+            // not a directory marker was stored there.
+            if ("/".equals(delimiter)) {
                 logger.debug("adding prefix: {}", name);
-                // A directory-marker object (a key ending in "/") that
-                // was explicitly stored carries the XATTR_CONTENT_MD5
-                // xattr. Report its metadata so a non-delimited
-                // ListObjects, which emits this entry as <Contents>,
-                // includes Size/LastModified/ETag like any other
-                // 0-byte object. Implicit prefixes (no marker object)
-                // keep null metadata since they surface only as
-                // <CommonPrefixes>.
-                String eTag = null;
-                Instant lastModified = null;
-                Long size = null;
-                if (markerExists) {
-                    eTag = readETagXattr(dirXattrs);
-                    lastModified = Instant.ofEpochMilli(
-                            attr.lastModifiedTime().toMillis());
-                    size = 0L;
-                }
+                builder.add(ListEntry.prefix(name + "/"));
+                return;
+            }
 
-                // With a delimiter this entry is a common prefix; without
-                // one only an explicitly stored directory marker surfaces,
-                // as an ordinary zero-byte object in Contents.
-                if ("/".equals(delimiter)) {
-                    builder.add(ListEntry.prefix(name + "/"));
-                } else {
-                    builder.add(ListEntry.object(SdkResponses.objectEntry(
-                            name + "/", eTag, lastModified, size,
-                            StorageClass.STANDARD)));
-                }
+            // Without one only an explicitly stored directory marker (a
+            // key ending in "/") surfaces, as an ordinary zero-byte object
+            // in Contents.  It carries the XATTR_CONTENT_MD5 xattr, and its
+            // Size, LastModified and ETag are reported like any other
+            // object's.
+            var dirXattrs = safeGetXattrs(path);
+            if (dirXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
+                logger.debug("adding marker: {}", name);
+                builder.add(ListEntry.object(SdkResponses.objectEntry(
+                        name + "/", readETagXattr(dirXattrs),
+                        Instant.ofEpochMilli(
+                                attr.lastModifiedTime().toMillis()),
+                        0L, StorageClass.STANDARD)));
             }
         } else {
-            var name = relativeName(containerPath, path);
             // the attributes of an object that cannot make the page are
-            // not read
+            // not read further
             if (!builder.wants(name)) {
                 return;
             }
