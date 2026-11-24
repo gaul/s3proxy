@@ -1549,6 +1549,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                                 blob.getMetadata().name())) {
                             if (NULL_VERSION_ID.equals(version.versionId())) {
                                 Files.deleteIfExists(version.path());
+                                // a key left without versions keeps no
+                                // directory, which deleteBucket would
+                                // count as one
+                                removeEmptyParentDirectories(containerPath,
+                                        version.path().getParent());
                             }
                         }
                     } finally {

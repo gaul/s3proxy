@@ -776,6 +776,25 @@ public final class VersionedBlobStoreTest {
     }
 
     /**
+     * The same when the suspended write that takes the marker's place asks
+     * for If-None-Match: *, which publishes by another path.
+     */
+    @Test
+    public void testBucketIsDeletedOnceItsNullMarkerIsReplacedConditionally() {
+        enableVersioning();
+        suspendVersioning();
+        put("blob", FIRST);
+        client.deleteObject(b -> b.bucket(containerName).key("blob"));
+        client.putObject(b -> b.bucket(containerName).key("blob")
+                .ifNoneMatch("*"), RequestBody.fromBytes(SECOND));
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId("null"));
+
+        client.deleteBucket(b -> b.bucket(containerName));
+        assertThat(blobStore.containerExists(containerName)).isFalse();
+    }
+
+    /**
      * Nor does a null delete marker keep it once a suspended write has
      * taken its place as the key's one null version.
      */
