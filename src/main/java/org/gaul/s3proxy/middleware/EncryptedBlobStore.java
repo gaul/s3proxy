@@ -115,6 +115,25 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                         (key, paddings) -> paddings.size() + 1)
                     .build();
 
+    /**
+     * The plaintext sizes of the objects most recently listed whose ETag
+     * does not state their part count.  Such a size is only found by reading
+     * the object's final padding, and a listing names up to a thousand
+     * objects, so
+     * without this every listing of a bucket pays a backend read per key
+     * again -- a thousand round trips, held on the request's thread, for a
+     * request that costs its sender nothing.  Named by the same identity as
+     * above, so a replaced object is counted afresh; the bound counts the
+     * characters of the identities held, since that is what an entry weighs
+     * and a key may be a kilobyte long.
+     */
+    private final Cache<String, Long> listedSizes =
+            CacheBuilder.newBuilder()
+                    .maximumWeight(16 << 20)
+                    .<String, Long>weigher(
+                        (identity, size) -> identity.length())
+                    .build();
+
     private SecretKeySpec secretKey;
 
     private EncryptedBlobStore(BlobStore blobStore, Properties properties)
@@ -332,7 +351,10 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
      * The plaintext size of a listed encrypted object: the stored size less
      * the padding, counted from the eTag's part suffix or, failing that, by
      * reading the final part padding -- the same fallbacks blobMetadata
-     * takes.
+     * takes.  The read is made once for an object and remembered, so that
+     * listing it again costs nothing, and listings of the same object that
+     * arrive together wait on the one read rather than each making their
+     * own.
      */
     private long plaintextSize(String container, S3Object object) {
         long blobSize = requireNonNull(object.size());
@@ -342,28 +364,37 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
             int parts = Integer.parseInt(requireNonNull(matcher.group(1)));
             return blobSize - (long) Constants.PADDING_BLOCK_SIZE * parts;
         }
-        var blob = requireNonNull(delegate().getBlob(
-                GetObjectRequest.builder()
-                        .bucket(container)
-                        .key(object.key())
-                        .range(SdkRequests.range(
-                                blobSize - Constants.PADDING_BLOCK_SIZE,
-                                blobSize - 1))
-                        .build()));
+        // NUL-joined for the reason partPaddingsOf gives.
+        String identity = String.join("\0", container, object.key(),
+                object.eTag(), String.valueOf(blobSize),
+                String.valueOf(object.lastModified()));
         try {
-            PartPadding lastPartPadding =
-                PartPadding.readPartPadding(blob);
-            if (lastPartPadding.getPart() <= 1) {
-                return blobSize - Constants.PADDING_BLOCK_SIZE;
-            }
-            return walkedPlaintextSize(container, object.key(),
-                    HeadObjectResponse.builder()
-                            .contentLength(blobSize)
-                            .eTag(object.eTag())
-                            .lastModified(object.lastModified())
-                            .build());
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
+            return listedSizes.get(identity, () -> {
+                var blob = requireNonNull(delegate().getBlob(
+                        GetObjectRequest.builder()
+                                .bucket(container)
+                                .key(object.key())
+                                .range(SdkRequests.range(
+                                        blobSize - Constants.PADDING_BLOCK_SIZE,
+                                        blobSize - 1))
+                                .build()));
+                PartPadding lastPartPadding =
+                    PartPadding.readPartPadding(blob);
+                if (lastPartPadding.getPart() <= 1) {
+                    return blobSize - Constants.PADDING_BLOCK_SIZE;
+                }
+                // the last part's number is not how many parts there are
+                return walkedPlaintextSize(container, object.key(),
+                        HeadObjectResponse.builder()
+                                .contentLength(blobSize)
+                                .eTag(object.eTag())
+                                .lastModified(object.lastModified())
+                                .build());
+            });
+        } catch (ExecutionException | UncheckedExecutionException e) {
+            Throwable cause = requireNonNull(e.getCause());
+            Throwables.throwIfUnchecked(cause);
+            throw new RuntimeException(cause);
         }
     }
 

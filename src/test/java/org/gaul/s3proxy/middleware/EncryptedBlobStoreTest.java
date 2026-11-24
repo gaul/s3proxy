@@ -511,6 +511,85 @@ public final class EncryptedBlobStoreTest {
         }
     }
 
+    /**
+     * A listing reports plaintext sizes, and an object whose ETag states no
+     * part count -- anything written by a plain put -- gives up its count
+     * only to a read of its final padding.  Making that read for every key
+     * of every listing lets one request without a body, unsigned where the
+     * bucket is public, cost the backend a thousand: enough of them hold
+     * every request thread.  The count belongs to the object, not to the
+     * listing that happened to ask.
+     */
+    @Test
+    public void testListReadsAnObjectsPaddingOnce() throws Exception {
+        int blobs = 5;
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        BlobStore counting = new ForwardingBlobStore(blobStore) {
+            @Override
+            public ResponseInputStream<GetObjectResponse> getBlob(
+                GetObjectRequest request) {
+
+                reads.incrementAndGet();
+                return super.getBlob(request);
+            }
+        };
+        BlobStore encrypted = EncryptedBlobStore.newEncryptedBlobStore(
+            counting, encryptionProperties);
+
+        for (int i = 0; i < blobs; ++i) {
+            encrypted.putBlob(makeRequest(containerName, "blob-" + i, 10),
+                new ByteArrayInputStream(filler(i, 10)));
+        }
+
+        var request = ListObjectsV2Request.builder()
+            .bucket(containerName)
+            .build();
+        assertThat(encrypted.list(request).contents())
+            .extracting(S3Object::size)
+            .containsExactly(10L, 10L, 10L, 10L, 10L);
+        assertThat(reads.get()).isLessThanOrEqualTo(blobs);
+
+        // The same objects listed again, whole and a key at a time, are
+        // read no further.  Before the counts were remembered this was a
+        // read per key listed, every time.
+        reads.set(0);
+        assertThat(encrypted.list(request).contents())
+            .extracting(S3Object::size)
+            .containsExactly(10L, 10L, 10L, 10L, 10L);
+        String token = null;
+        do {
+            var page = encrypted.list(request.toBuilder()
+                .maxKeys(1)
+                .continuationToken(token)
+                .build());
+            assertThat(page.contents())
+                .extracting(S3Object::size)
+                .containsExactly(10L);
+            token = page.nextContinuationToken();
+        } while (token != null);
+        assertThat(reads.get()).isZero();
+
+        // An object replaced under the same name is a different object, and
+        // the count remembered for the first says nothing about it.
+        MultipartUpload replacement = encrypted.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, "blob-0"));
+        int[] partSizes = {partSize, LAST_PART_SIZE};
+        for (int i = 0; i < partSizes.length; ++i) {
+            TestUtils.uploadPart(encrypted, replacement, i + 1,
+                new ByteArrayInputStream(filler(i, partSizes[i])),
+                partSizes[i]);
+        }
+        encrypted.completeMultipartUpload(replacement,
+            TestUtils.completeRequest(replacement,
+                encrypted.listMultipartUpload(replacement)));
+
+        assertThat(encrypted.list(request).contents())
+            .extracting(S3Object::size)
+            .containsExactly((long) partSize + LAST_PART_SIZE,
+                10L, 10L, 10L, 10L);
+        assertThat(reads.get()).isLessThanOrEqualTo(1);
+    }
+
     @Test
     public void testBlobNotExists() {
 
