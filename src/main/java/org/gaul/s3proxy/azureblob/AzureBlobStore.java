@@ -69,6 +69,7 @@ import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
 import com.azure.storage.blob.models.AccessTier;
 import com.azure.storage.blob.models.BlobBeginCopySourceRequestConditions;
+import com.azure.storage.blob.models.BlobDownloadAsyncResponse;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobItem;
@@ -79,6 +80,7 @@ import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockList;
 import com.azure.storage.blob.models.BlockListType;
+import com.azure.storage.blob.models.DownloadRetryOptions;
 import com.azure.storage.blob.models.ListBlobContainersOptions;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.models.PublicAccessType;
@@ -92,7 +94,6 @@ import com.azure.storage.blob.options.BlockBlobStageBlockFromUrlOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlobClientBase;
-import com.azure.storage.blob.specialized.BlobInputStream;
 import com.azure.storage.blob.specialized.BlockBlobAsyncClient;
 import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
@@ -197,6 +198,9 @@ public final class AzureBlobStore implements BlobStore {
      * and are removed with the container.
      */
     private static final String STUB_BLOB_PREFIX = ".s3proxy/stubs/";
+    /** The header Get Blob reports the blob's access tier in. */
+    private static final HttpHeaderName ACCESS_TIER_HEADER =
+            HttpHeaderName.fromString("x-ms-access-tier");
     private static final String UPLOADS_PREFIX = STUB_BLOB_PREFIX + "u/";
     private static final String LONG_UPLOADS_PREFIX = STUB_BLOB_PREFIX + "l/";
     /** Azure's longest blob name, in characters. */
@@ -1189,9 +1193,24 @@ public final class AzureBlobStore implements BlobStore {
                 .setIfNoneMatch(backendCondition(request.ifNoneMatch()))
                 .setIfUnmodifiedSince(toOffsetDateTime(
                         request.ifUnmodifiedSince()));
-        BlobInputStream blobStream;
+        // One Get Blob, its body streamed as it arrives.  openInputStream
+        // read the blob in 4 MiB blocks, each a request of its own made only
+        // when the reader had used up the one before and held whole on the
+        // heap, the first of them read before a header could go out; a GET
+        // cost a round trip for every 4 MiB, and a blob overwritten midway
+        // failed the blocks after.  Should the body break off, the client
+        // resumes it from where it stopped, of the same ETag.
+        var asyncClient = blobServiceAsyncClient
+                .getBlobContainerAsyncClient(container)
+                .getBlobAsyncClient(key);
+        if (client.getVersionId() != null) {
+            asyncClient = asyncClient.getVersionClient(client.getVersionId());
+        }
+        BlobDownloadAsyncResponse download;
         try {
-            blobStream = client.openInputStream(azureRange, conditions);
+            download = requireNonNull(asyncClient.downloadStreamWithResponse(
+                    azureRange, new DownloadRetryOptions(), conditions,
+                    /*getRangeContentMd5=*/ false).block());
         } catch (BlobStorageException bse) {
             if (bse.getStatusCode() ==
                     416) {
@@ -1199,64 +1218,66 @@ public final class AzureBlobStore implements BlobStore {
             }
             throw translate(bse, container, key, request.versionId());
         }
-        var properties = blobStream.getProperties();
-        if (versioning && isDeleteMarker(properties.getMetadata())) {
+        var headers = download.getDeserializedHeaders();
+        var blobStream = new ByteBufferFluxInputStream(download.getValue());
+        if (versioning && isDeleteMarker(headers.getMetadata())) {
             blobStream.close();
             if (request.versionId() != null) {
                 throw deleteMarkerNamed(request.versionId());
             }
             throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
-                    properties.getVersionId(),
+                    headers.getVersionId(),
                     "current version is a delete marker");
         }
-        var expires = properties.getExpiresOn();
-        long contentLength;
-        if (azureRange == null) {
-            contentLength = properties.getBlobSize();
-        } else {
-            if (azureRange.getCount() == null) {
-                contentLength = properties.getBlobSize() -
-                        azureRange.getOffset();
-            } else {
-                // An explicit range whose end lies past the blob returns only
-                // the bytes up to the end of the blob, so clamp the reported
-                // length to what Azure actually streams; otherwise
-                // Content-Length overstates the body and the client stalls
-                // waiting for bytes that never come.
-                contentLength = Math.min(azureRange.getCount(),
-                        properties.getBlobSize() - azureRange.getOffset());
-            }
+        // What Azure sends is what the range covers; the blob's own size
+        // follows the slash of a Content-Range, which a read of the whole
+        // blob does not have.
+        long contentLength = requireNonNull(headers.getContentLength());
+        long blobSize = contentLength;
+        String azureContentRange = headers.getContentRange();
+        if (azureContentRange != null &&
+                azureContentRange.lastIndexOf('/') >= 0) {
+            blobSize = Long.parseLong(azureContentRange.substring(
+                    azureContentRange.lastIndexOf('/') + 1));
         }
-        // Carry the access tier so GET reports x-amz-storage-class
-        // consistently with HEAD (blobMetadata).  Get Blob does not always
-        // return the tier that Get Blob Properties does (e.g. the emulator
-        // omits it), so fall back to a properties fetch only when it is absent.
-        var accessTier = properties.getAccessTier();
-        if (accessTier == null) {
-            accessTier = client.getProperties().getAccessTier();
+        // Get Blob answers with the access tier, as Azure and Azurite both
+        // send it, but the SDK's model of its headers leaves it out, so it
+        // is read from the headers as sent.  Only from a server that leaves
+        // it out too is the tier asked for, so that GET reports
+        // x-amz-storage-class as HEAD does.
+        AccessTier accessTier = null;
+        String tierHeader = download.getHeaders().getValue(ACCESS_TIER_HEADER);
+        if (tierHeader != null) {
+            accessTier = AccessTier.fromString(tierHeader);
+        } else {
+            try {
+                accessTier = client.getProperties().getAccessTier();
+            } catch (BlobStorageException bse) {
+                blobStream.close();
+                throw translate(bse, container, key, request.versionId());
+            }
         }
         @SuppressWarnings("deprecation")
         var builder = GetObjectResponse.builder()
-                .metadata(properties.getMetadata())
+                .metadata(headers.getMetadata())
                 .serverSideEncryption(
-                        reportedSse(properties.isServerEncrypted()))
-                .versionId(properties.getVersionId())
-                .cacheControl(properties.getCacheControl())
-                .contentDisposition(properties.getContentDisposition())
-                .contentEncoding(properties.getContentEncoding())
-                .contentLanguage(properties.getContentLanguage())
+                        reportedSse(headers.isServerEncrypted()))
+                .versionId(headers.getVersionId())
+                .cacheControl(headers.getCacheControl())
+                .contentDisposition(headers.getContentDisposition())
+                .contentEncoding(headers.getContentEncoding())
+                .contentLanguage(headers.getContentLanguage())
                 .contentLength(contentLength)
-                .contentType(properties.getContentType())
-                .expires(expires == null ? null : expires.toInstant())
-                .eTag(reportETag(properties.getETag()))
-                .lastModified(properties.getLastModified() == null ? null :
-                        properties.getLastModified().toInstant())
+                .contentType(headers.getContentType())
+                .eTag(reportETag(headers.getETag()))
+                .lastModified(headers.getLastModified() == null ? null :
+                        headers.getLastModified().toInstant())
                 .storageClass(fromAccessTier(accessTier).toString());
         if (azureRange != null) {
             builder.contentRange(
                     "bytes " + azureRange.getOffset() +
                     "-" + (azureRange.getOffset() + contentLength - 1) +
-                    "/" + properties.getBlobSize());
+                    "/" + blobSize);
         }
         return SdkResponses.getResponse(builder.build(), blobStream);
     }
