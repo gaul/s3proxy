@@ -27,8 +27,10 @@ import java.security.GeneralSecurityException;
 import java.security.spec.KeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
@@ -442,6 +444,37 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     /**
+     * A write's user metadata less the keys this store keeps its own
+     * bookkeeping under.  blobMetadata believes what it finds there -- the
+     * part count is subtracted from the stored size unexamined -- and only
+     * releases through 3.3.0 ever wrote them, so one arriving now is a
+     * client's: left in place, whoever may write an object decides the size
+     * every HEAD of it reports, or with a count that is no number makes HEAD
+     * and all that rests on it fail.  They are dropped here rather than where
+     * requests are parsed because what reaches this store is what it later
+     * reads back: UserMetadataReplacerBlobStore sits above it and can map
+     * another spelling onto a reserved key.  Metadata names are case
+     * insensitive, so any spelling is dropped.
+     */
+    private static Map<String, String> withoutReservedMetadata(
+            Map<String, String> metadata) {
+        if (metadata.keySet().stream().noneMatch(
+                EncryptedBlobStore::isReservedMetadataKey)) {
+            // untouched, a request that stated no metadata still states none
+            return metadata;
+        }
+        var kept = new LinkedHashMap<String, String>(metadata);
+        kept.keySet().removeIf(EncryptedBlobStore::isReservedMetadataKey);
+        return kept;
+    }
+
+    private static boolean isReservedMetadataKey(String key) {
+        String prefix = Constants.METADATA_PREFIX;
+        return key.regionMatches(/*ignoreCase=*/ true, 0, prefix, 0,
+                prefix.length());
+    }
+
+    /**
      * The plaintext size of an encrypted object's HEAD: the stored size
      * less the padding, counted from the parts metadata, the eTag's part
      * suffix or, failing both, by reading the final part padding.
@@ -810,6 +843,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         PutObjectResponse response = delegate().putBlob(
                 FlexChecksum.clearOn(request.toBuilder()
                 .key(blobNameWithSuffix(key))
+                .metadata(withoutReservedMetadata(request.metadata()))
                 .contentLength(contentLength + Constants.PADDING_BLOCK_SIZE)
                 .contentMD5(null))
                 .build(), encrypted);
@@ -832,6 +866,11 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         checkNoCustomerKey(request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
+
+        // replacement metadata is a client's, as a put's is
+        request = request.toBuilder()
+                .metadata(withoutReservedMetadata(request.metadata()))
+                .build();
 
         // if we copy an encrypted blob
         // make sure to add suffix to the destination blob name
@@ -1031,6 +1070,7 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         MultipartUpload created = delegate().initiateMultipartUpload(
             request.toBuilder()
                 .key(blobNameWithSuffix(key))
+                .metadata(withoutReservedMetadata(request.metadata()))
                 .build());
         // Answer under the key the caller named rather than the one the parts
         // are stored beneath, the way listMultipartUploads does.  A caller
@@ -1148,12 +1188,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
      * from the request URI for every part, completion and abort, and the
      * upload initiateMultipartUpload returned is read only for its id -- so
      * this suffixes unconditionally, for the reason {@link
-     * #blobNameWithSuffix(String)} gives.
+     * #blobNameWithSuffix(String)} gives.  A store that assembles the object
+     * itself takes its metadata from this request at completion, so the
+     * reserved keys leave it here as they do every other write.
      */
     private MultipartUpload filterMultipartUpload(MultipartUpload mpu) {
         String blobName = mpu.blobName();
         return new MultipartUpload(mpu.id(), mpu.request().toBuilder()
             .key(blobNameWithSuffix(blobName))
+            .metadata(withoutReservedMetadata(mpu.request().metadata()))
             .build(),
             mpu.response());
     }

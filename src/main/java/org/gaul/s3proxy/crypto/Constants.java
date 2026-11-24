@@ -31,10 +31,15 @@ public final class Constants {
      */
     public static final Pattern MPU_ETAG_SUFFIX_PATTERN =
         Pattern.compile("^\"?[0-9a-fA-F]{32}-([0-9]+)\"?$");
+    /**
+     * The user metadata keys the encrypted store reads its own bookkeeping
+     * from.  They are its to write, never a client's.
+     */
+    public static final String METADATA_PREFIX = "s3proxy_encryption_";
     public static final String METADATA_ENCRYPTION_PARTS =
-        "s3proxy_encryption_parts";
+        METADATA_PREFIX + "parts";
     public static final String METADATA_IS_ENCRYPTED_MULTIPART =
-        "s3proxy_encryption_multipart";
+        METADATA_PREFIX + "multipart";
     public static final int AES_BLOCK_SIZE = 16;
     public static final int PADDING_BLOCK_SIZE = 64;
     public static final String DELIMITER = "-S3-ENC-";

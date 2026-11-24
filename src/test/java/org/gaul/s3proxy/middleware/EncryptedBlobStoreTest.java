@@ -429,6 +429,57 @@ public final class EncryptedBlobStoreTest {
     }
 
     /**
+     * The part count the store subtracts from an object's stored size may
+     * come from user metadata that releases through 3.3.0 wrote, and user
+     * metadata is the one thing on an object its writer chooses freely.  A
+     * write carrying those keys would set the size every HEAD of the object
+     * reports, or fail HEAD outright with a count that is no number, so no
+     * write may carry them down -- however the key is cased, and whether it
+     * arrives on an object, a copy's replacement metadata or an upload.
+     */
+    @Test
+    public void testEncryptedWriteDropsReservedMetadata() throws Exception {
+        byte[] content = filler(0, LAST_PART_SIZE);
+        var forged = Map.of(
+            "color", "red",
+            Constants.METADATA_ENCRYPTION_PARTS, "-7",
+            "S3Proxy_Encryption_Multipart", "true");
+
+        String blobName = TestUtils.createRandomBlobName();
+        encryptedBlobStore.putBlob(
+            makeRequest(containerName, blobName, content.length).toBuilder()
+                .metadata(forged).build(),
+            new ByteArrayInputStream(content));
+
+        String copyName = blobName + "-copy";
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+            .sourceBucket(containerName).sourceKey(blobName)
+            .destinationBucket(containerName).destinationKey(copyName)
+            .metadataDirective(MetadataDirective.REPLACE)
+            .metadata(Map.of("color", "red",
+                Constants.METADATA_ENCRYPTION_PARTS, "x"))
+            .build());
+
+        String mpuName = TestUtils.createRandomBlobName();
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+            TestUtils.createRequest(containerName, mpuName).toBuilder()
+                .metadata(forged).build());
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+            new ByteArrayInputStream(content), content.length);
+        encryptedBlobStore.completeMultipartUpload(mpu,
+            TestUtils.completeRequest(mpu,
+                encryptedBlobStore.listMultipartUpload(mpu)));
+
+        for (String name : List.of(blobName, copyName, mpuName)) {
+            var head = encryptedBlobStore.blobMetadata(containerName, name);
+            assertThat(head.contentLength()).as(name)
+                .isEqualTo(content.length);
+            assertThat(head.metadata()).as(name)
+                .isEqualTo(Map.of("color", "red"));
+        }
+    }
+
+    /**
      * An encrypted multipart object records each part's IV in a padding
      * block written after that part, so reading one means walking the
      * paddings backwards from the end of the object, a backend read apiece.
