@@ -27,3 +27,6 @@ __blobstorage__/
 AzuriteConfig
 __azurite_db*
 swift.db
+
+# Jazzer fuzzing corpus
+.cifuzz-corpus/

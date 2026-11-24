@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 import java.net.InetAddress;
@@ -45,6 +46,7 @@ import org.eclipse.jetty.server.CustomRequestLog;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.RequestLog;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
@@ -91,6 +93,7 @@ public final class S3Proxy {
     @Nullable private final S3ProxyMetrics metrics;
     private final boolean listenHTTP;
     private final boolean listenHTTPS;
+    private final HttpConnectionFactory httpConnectionFactory;
 
     S3Proxy(Builder builder) {
         checkArgument(builder.endpoint != null ||
@@ -171,8 +174,7 @@ public final class S3Proxy {
         var src = new SecureRequestCustomizer();
         src.setSniHostCheck(false);
         httpConfiguration.addCustomizer(src);
-        HttpConnectionFactory httpConnectionFactory =
-                new HttpConnectionFactory(httpConfiguration);
+        httpConnectionFactory = new HttpConnectionFactory(httpConfiguration);
         ServerConnector connector;
         if (builder.endpoint != null) {
             connector = new ServerConnector(server, httpConnectionFactory);
@@ -1001,6 +1003,22 @@ public final class S3Proxy {
         }
 
         return -1;
+    }
+
+    /**
+     * Adds a connector that serves requests handed to it in memory, for a
+     * harness that sends many: no socket, port or TCP handshake for each.
+     * It reads them through the network connectors' own HTTP configuration,
+     * so a request is parsed and refused as one from the network would be.
+     * Call before start; it goes after the network connectors, whose indexes
+     * getPort and getSecurePort read.
+     */
+    LocalConnector addLocalConnector() {
+        checkState(!server.isStarted() && !server.isStarting(),
+                "add the local connector before start");
+        var connector = new LocalConnector(server, httpConnectionFactory);
+        server.addConnector(connector);
+        return connector;
     }
 
     public String getState() {
