@@ -47,6 +47,9 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
  * order {@link DecryptionInputStream} steps through them.
  */
 public final class PartPaddings {
+    /** The most parts S3 allows in one object, and so the most paddings. */
+    private static final int MAX_PARTS = 10_000;
+
     private static final PartPaddings NOT_ENCRYPTED = new PartPaddings(
             Collections.emptyNavigableMap(), /*unencryptedSize=*/ 0,
             /*encryptedSize=*/ 0, /*encrypted=*/ false);
@@ -158,6 +161,15 @@ public final class PartPaddings {
                             " bytes too short to be a part");
                 }
 
+                // An empty part costs the object no more than its padding
+                // block, so a forged object can claim as many parts as it
+                // has blocks, each a backend read and a padding held in
+                // memory.  Stop at the most parts an upload can have.
+                if (part == MAX_PARTS) {
+                    throw malformed(blobName, "more than " + MAX_PARTS +
+                            " parts");
+                }
+
                 // get the next block
                 // rewind by the current encrypted block size
                 // minus the encryption padding
@@ -174,6 +186,14 @@ public final class PartPaddings {
 
                 // read the padding structure
                 PartPadding partPadding = PartPadding.readPartPadding(blob);
+                // Where the walk looks is steered by the sizes the paddings
+                // after this one claim, so what it finds need not be a
+                // padding: 64 zero bytes read as an empty part.  Every part
+                // ends in the delimiter, not only the last.
+                if (!partPadding.getDelimiter().equals(Constants.DELIMITER)) {
+                    throw malformed(blobName, "bytes " + startAt + "-" +
+                            endAt + " are not a padding");
+                }
                 checkPartSize(partPadding.getSize(), remaining, blobName);
 
                 // add the part to the list
