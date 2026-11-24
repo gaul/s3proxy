@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -428,9 +429,47 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private ListObjectsV2Response list(ListObjectsV2Request request,
             boolean includeMultipart) {
-        String container = request.bucket();
         String marker0 = request.continuationToken() != null ?
                 request.continuationToken() : request.startAfter();
+        Integer maxKeys = request.maxKeys();
+        // One more than the page shows, to tell whether there is more.
+        var page = new ListPage(marker0, maxKeys == null ?
+                Integer.MAX_VALUE : maxKeys + 1);
+        walk(request, includeMultipart, page);
+
+        var sorted = page.entries;
+        String marker = null;
+        if (maxKeys != null && sorted.size() > maxKeys) {
+            if (maxKeys == 0) {
+                sorted.clear();
+            } else {
+                sorted.pollLast();
+                marker = sorted.last().name();
+            }
+        }
+        var contents = ImmutableList.<S3Object>builder();
+        var prefixes = ImmutableList.<CommonPrefix>builder();
+        for (var entry : sorted) {
+            if (entry.object() != null) {
+                contents.add(entry.object());
+            } else {
+                prefixes.add(SdkResponses.commonPrefix(entry.name()));
+            }
+        }
+        return SdkResponses.objectsPage(contents.build(), prefixes.build(),
+                marker);
+    }
+
+    /**
+     * Walks what a listing request covers, handing each entry to
+     * {@code sink}, which keeps what it needs of them: a listing used to
+     * gather every entry below the prefix and cut max-keys out of them
+     * afterwards, holding heap in proportion to the bucket for every
+     * request, anonymous ones on a public bucket included.
+     */
+    private void walk(ListObjectsV2Request request, boolean includeMultipart,
+            ListSink sink) {
+        String container = request.bucket();
         var containerPath = requireContainerPath(container);
 
         var delimiter = request.delimiter();
@@ -474,7 +513,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // container by a name listHelper does not know it under, so nothing
         // reserved was hidden.
         if (!dirPrefix.equals(dirPrefix.normalize())) {
-            return SdkResponses.objectsPage(List.of(), List.of(), null);
+            return;
         }
         // listHelper hides a reserved name where it meets one, directly
         // under the container.  A walk starting below the container has
@@ -484,14 +523,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if (!slashPrefix && !dirPrefix.equals(containerPath) && isReservedName(
                 containerPath.relativize(dirPrefix).getName(0).toString(),
                 filterMultipart)) {
-            return SdkResponses.objectsPage(List.of(), List.of(), null);
+            return;
         }
         logger.debug("Listing blobs at: {}", pathPrefix);
-        var set = ImmutableSortedSet.<ListEntry>naturalOrder();
         var pathPrefixString = root.resolve(pathPrefix).toAbsolutePath().toString();
         try {
-            listHelper(set, containerPath, dirPrefix, pathPrefixString, delimiter,
-                    filterMultipart);
+            listHelper(sink, containerPath, dirPrefix, pathPrefixString,
+                    delimiter, filterMultipart);
 
             // listHelper leaves the "/" key's reserved name out, and a
             // client can store that key: left out too, it was an object no
@@ -499,8 +537,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // under its key, as the directory marker it is stored as.
             if (prefix.isEmpty() && Files.isDirectory(slashBlob)) {
                 try {
-                    listEntry(set, containerPath, slashBlob, pathPrefixString,
-                            delimiter, filterMultipart);
+                    listEntry(sink, containerPath, slashBlob,
+                            pathPrefixString, delimiter, filterMultipart);
                 } catch (IOException ioe) {
                     // deleted mid-request: there is nothing left to list
                     if (!vanished(ioe, slashBlob)) {
@@ -525,7 +563,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (markerXattrs.attributes().contains(XATTR_CONTENT_MD5)) {
                         var attr = Files.readAttributes(pathPrefix,
                                 BasicFileAttributes.class);
-                        set.add(ListEntry.object(SdkResponses.objectEntry(
+                        sink.add(ListEntry.object(SdkResponses.objectEntry(
                                 prefix, readETagXattr(markerXattrs),
                                 Instant.ofEpochMilli(
                                         attr.lastModifiedTime().toMillis()),
@@ -539,40 +577,6 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     }
                 }
             }
-
-            var sorted = set.build();
-            if (marker0 != null) {
-                // The ordering is name-only, so a name-only stub lets
-                // tailSet skip past the marker in O(log n).
-                sorted = sorted.tailSet(
-                        ListEntry.prefix(marker0),
-                        /*inclusive=*/ false);
-            }
-            String marker = null;
-            if (request.maxKeys() != null) {
-                int maxResults = request.maxKeys().intValue();
-                var sortedList = sorted.asList();
-                if (sortedList.size() > maxResults) {
-                    if (maxResults == 0) {
-                        sorted = ImmutableSortedSet.of();
-                    } else {
-                        var last = sortedList.get(maxResults - 1);
-                        sorted = sorted.headSet(last, /*inclusive=*/ true);
-                        marker = last.name();
-                    }
-                }
-            }
-            var contents = ImmutableList.<S3Object>builder();
-            var prefixes = ImmutableList.<CommonPrefix>builder();
-            for (var entry : sorted) {
-                if (entry.object() != null) {
-                    contents.add(entry.object());
-                } else {
-                    prefixes.add(SdkResponses.commonPrefix(entry.name()));
-                }
-            }
-            return SdkResponses.objectsPage(contents.build(),
-                    prefixes.build(), marker);
         } catch (IOException ioe) {
             logger.error("unexpected exception", ioe);
             throw new RuntimeException(ioe);
@@ -600,7 +604,55 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
     }
 
-    private void listHelper(ImmutableSortedSet.Builder<ListEntry> builder,
+    /** Where a walk of the store's tree puts the entries it finds. */
+    private interface ListSink {
+        /**
+         * Whether an entry of this name could be kept, asked before what
+         * costs a read of its attributes is spent on it.
+         */
+        boolean wants(String name);
+
+        void add(ListEntry entry);
+    }
+
+    /**
+     * One page of a listing, gathered as the walk goes: the entries after
+     * the marker, no more than {@code limit} of them, the first in name
+     * order.  A name already kept is not added again, as the sorted set it
+     * replaces did not.
+     */
+    private static final class ListPage implements ListSink {
+        private final TreeSet<ListEntry> entries = new TreeSet<>();
+        @Nullable private final String marker;
+        private final int limit;
+
+        ListPage(@Nullable String marker, int limit) {
+            this.marker = marker;
+            this.limit = limit;
+        }
+
+        @Override
+        public boolean wants(String name) {
+            if (marker != null && name.compareTo(marker) <= 0) {
+                return false;
+            }
+            return entries.size() < limit ||
+                    name.compareTo(entries.last().name()) < 0;
+        }
+
+        @Override
+        public void add(ListEntry entry) {
+            if (!wants(entry.name())) {
+                return;
+            }
+            entries.add(entry);
+            if (entries.size() > limit) {
+                entries.pollLast();
+            }
+        }
+    }
+
+    private void listHelper(ListSink builder,
             Path containerPath, Path parent, String pathPrefixString,
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
@@ -679,7 +731,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return name.equals(TEMPORARY_DIR);
     }
 
-    private void listEntry(ImmutableSortedSet.Builder<ListEntry> builder,
+    private void listEntry(ListSink builder,
             Path containerPath, Path path, String pathPrefixString,
             @Nullable String delimiter, boolean filterMultipart)
             throws IOException {
@@ -733,6 +785,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
         } else {
             var name = relativeName(containerPath, path);
+            // the attributes of an object that cannot make the page are
+            // not read
+            if (!builder.wants(name)) {
+                return;
+            }
             logger.debug("adding: {}", name);
             var lastModifiedTime =
                     Instant.ofEpochMilli(attr.lastModifiedTime().toMillis());
@@ -2406,22 +2463,45 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         String delimiter = request.delimiter();
         int maxKeys = request.maxKeys() == null ? 1000 : request.maxKeys();
 
-        // Flatten every version of every key into S3's order -- keys
-        // ascending, newest first -- and slice one page out of it.  The
-        // current versions come from the ordinary listing, since that is
+        // Order every version of every key as S3 does -- keys ascending,
+        // newest first -- and keep the rows one page can need.  The current
+        // versions come from the walk of the ordinary listing, since that is
         // where they live; the rest come from the sidecar.
-        var rows = new ArrayList<VersionRow>();
-        var commonPrefixes = new LinkedHashSet<String>();
-        for (var object : listAll(container, prefix)) {
-            var path = resolveBlobPath(containerPath, object.key());
-            if (collectCommonPrefix(object.key(), prefix, delimiter,
-                    commonPrefixes)) {
-                continue;
-            }
-            rows.add(new VersionRow(object.key(), currentVersionId(path),
-                    /*latest=*/ true, /*deleteMarker=*/ false, object.eTag(),
-                    object.lastModified(), object.size()));
-        }
+        String keyMarker = request.keyMarker();
+        var versionPage = new VersionPage(keyMarker, maxKeys + 1);
+        walk(ListObjectsV2Request.builder()
+                .bucket(container)
+                .prefix(prefix.isEmpty() ? null : prefix)
+                .build(), /*includeMultipart=*/ false, new ListSink() {
+                    @Override
+                    public boolean wants(String name) {
+                        return versionPage.wantsKey(
+                                rollUp(name, prefix, delimiter));
+                    }
+
+                    @Override
+                    public void add(ListEntry entry) {
+                        var object = entry.object();
+                        if (object == null) {
+                            return;
+                        }
+                        String key = object.key();
+                        String rolled = rollUp(key, prefix, delimiter);
+                        if (!rolled.equals(key)) {
+                            versionPage.add(VersionRow.commonPrefix(rolled));
+                            return;
+                        }
+                        if (!versionPage.wants(key, object.lastModified())) {
+                            return;
+                        }
+                        versionPage.add(new VersionRow(key,
+                                currentVersionId(resolveBlobPath(
+                                        containerPath, key)),
+                                /*latest=*/ true, /*deleteMarker=*/ false,
+                                object.eTag(), object.lastModified(),
+                                object.size(), versionPage.nextSequence()));
+                    }
+                });
         // A key whose newest version is a delete marker has nothing current,
         // so the marker is what is latest.
         var latestArchived = new TreeMap<String, String>();
@@ -2437,7 +2517,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (!key.startsWith(prefix)) {
                 continue;
             }
-            if (collectCommonPrefix(key, prefix, delimiter, commonPrefixes)) {
+            String rolled = rollUp(key, prefix, delimiter);
+            if (!rolled.equals(key)) {
+                versionPage.add(VersionRow.commonPrefix(rolled));
+                continue;
+            }
+            // nor is a version read that cannot make the page
+            if (!versionPage.wants(key, version.lastModified())) {
                 continue;
             }
             boolean latest = !hasCurrentVersion(
@@ -2455,27 +2541,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 size = head.contentLength();
                 eTag = head.eTag();
             }
-            rows.add(new VersionRow(key, version.versionId(), latest,
+            versionPage.add(new VersionRow(key, version.versionId(), latest,
                     version.deleteMarker(), eTag, version.lastModified(),
-                    size));
+                    size, versionPage.nextSequence()));
         }
-        // A common prefix is a row like any other: it takes its place in
-        // key order, counts once against max-keys, and can be where a page
-        // ends.  Kept apart from the rows, every prefix was sent again on
-        // each page and none was counted.
-        for (String commonPrefix : commonPrefixes) {
-            rows.add(new VersionRow(commonPrefix, COMMON_PREFIX_ROW,
-                    /*latest=*/ false, /*deleteMarker=*/ false,
-                    /*eTag=*/ null, Instant.EPOCH, /*size=*/ null));
-        }
-        rows.sort(Comparator.comparing(VersionRow::key)
-                .thenComparing(Comparator.comparing(
-                        VersionRow::lastModified).reversed()));
+        var rows = versionPage.rows();
 
         int start = 0;
-        String keyMarker = request.keyMarker();
         if (keyMarker != null) {
             String versionIdMarker = request.versionIdMarker();
+            // whether the marker's own row is still there to resume after
+            boolean found = false;
             for (int i = 0; i < rows.size(); i++) {
                 var candidate = rows.get(i);
                 if (versionIdMarker == null) {
@@ -2486,6 +2562,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 } else if (candidate.key().equals(keyMarker) &&
                         candidate.versionId().equals(versionIdMarker)) {
                     start = i + 1;
+                    found = true;
                     break;
                 } else if (isPastMarker(candidate, keyMarker,
                         versionIdMarker)) {
@@ -2493,17 +2570,24 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     // that named it -- how a versioned bucket is emptied --
                     // and its place is before this one.  The null versions
                     // just ahead of it cannot be placed either side of the
-                    // marker, so they are listed, perhaps a second time,
-                    // rather than risk never listing them.
+                    // marker, so they are listed below.
                     start = i;
-                    while (start > 0 && rows.get(start - 1).key().equals(
-                            keyMarker) && rows.get(start - 1).versionId()
-                            .equals(NULL_VERSION_ID)) {
-                        --start;
-                    }
                     break;
                 }
                 start = i + 1;
+            }
+            // The marker's own row is gone, deleted since the page that
+            // named it -- how a versioned bucket is emptied -- and its place
+            // is where the rows past it begin, or the end.  The null versions
+            // just ahead of it cannot be placed either side of the marker, so
+            // they are listed, perhaps a second time, rather than risk never
+            // listing them: the last key's too, which ran off the end.
+            if (versionIdMarker != null && !found) {
+                while (start > 0 && rows.get(start - 1).key().equals(
+                        keyMarker) && rows.get(start - 1).versionId()
+                        .equals(NULL_VERSION_ID)) {
+                    --start;
+                }
             }
         }
         int end = Math.min(rows.size(), start + maxKeys);
@@ -2558,46 +2642,117 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 .build();
     }
 
-    /** One row of the flattened versions listing. */
+    /**
+     * One row of the flattened versions listing.  {@code sequence} orders
+     * rows of one key and one time as they were found, the current version
+     * first; every common prefix has 0, so that a second one of the same
+     * name is the same row.
+     */
     private record VersionRow(String key, String versionId, boolean latest,
             boolean deleteMarker, @Nullable String eTag, Instant lastModified,
-            @Nullable Long size) {
+            @Nullable Long size, long sequence) {
+        static final Comparator<VersionRow> ORDER =
+                Comparator.comparing(VersionRow::key)
+                        .thenComparing(VersionRow::lastModified,
+                                Comparator.reverseOrder())
+                        .thenComparingLong(VersionRow::sequence);
+
+        /**
+         * A common prefix is a row like any other: it takes its place in
+         * key order, counts once against max-keys, and can be where a page
+         * ends.  Kept apart from the rows, every prefix was sent again on
+         * each page and none was counted.
+         */
+        static VersionRow commonPrefix(String prefix) {
+            return new VersionRow(prefix, COMMON_PREFIX_ROW,
+                    /*latest=*/ false, /*deleteMarker=*/ false,
+                    /*eTag=*/ null, Instant.EPOCH, /*size=*/ null,
+                    /*sequence=*/ 0);
+        }
     }
 
     /**
-     * Records the common prefix a key rolls up into, answering whether it
-     * did -- in which case the key itself is not listed.
+     * The rows one page of a versions listing can need, gathered as they
+     * are found rather than all of them sorted at the end: every row of the
+     * marker's key, which the marker is placed among, and after it the
+     * first {@code limit} in order.
      */
-    private static boolean collectCommonPrefix(String key, String prefix,
-            @Nullable String delimiter, Set<String> commonPrefixes) {
-        if (delimiter == null || delimiter.isEmpty()) {
-            return false;
+    private static final class VersionPage {
+        @Nullable private final String keyMarker;
+        private final int limit;
+        private final TreeSet<VersionRow> atMarker =
+                new TreeSet<>(VersionRow.ORDER);
+        private final TreeSet<VersionRow> after =
+                new TreeSet<>(VersionRow.ORDER);
+        private long sequence = 1;
+
+        VersionPage(@Nullable String keyMarker, int limit) {
+            this.keyMarker = keyMarker;
+            this.limit = limit;
         }
-        int index = key.indexOf(delimiter, prefix.length());
-        if (index == -1) {
-            return false;
+
+        long nextSequence() {
+            return sequence++;
         }
-        commonPrefixes.add(key.substring(0, index + delimiter.length()));
-        return true;
+
+        /** Whether a row of this key could be kept, whatever its time. */
+        boolean wantsKey(String key) {
+            int order = keyMarker == null ? 1 : key.compareTo(keyMarker);
+            if (order <= 0) {
+                return order == 0;
+            }
+            return after.size() < limit ||
+                    key.compareTo(after.last().key()) <= 0;
+        }
+
+        /** Whether the next row of this key and time could be kept. */
+        boolean wants(String key, Instant lastModified) {
+            if (!wantsKey(key)) {
+                return false;
+            }
+            if (keyMarker != null && key.equals(keyMarker)) {
+                return true;
+            }
+            return after.size() < limit || VersionRow.ORDER.compare(
+                    new VersionRow(key, "", false, false, null, lastModified,
+                            null, sequence), after.last()) < 0;
+        }
+
+        void add(VersionRow row) {
+            int order = keyMarker == null ? 1 :
+                    row.key().compareTo(keyMarker);
+            if (order < 0) {
+                return;
+            }
+            if (order == 0) {
+                atMarker.add(row);
+                return;
+            }
+            after.add(row);
+            if (after.size() > limit) {
+                after.pollLast();
+            }
+        }
+
+        List<VersionRow> rows() {
+            var rows = new ArrayList<VersionRow>(atMarker);
+            rows.addAll(after);
+            return rows;
+        }
     }
 
-    /** Every current object under a prefix, following the listing's pages. */
-    private List<S3Object> listAll(String container, String prefix) {
-        var objects = new ArrayList<S3Object>();
-        var options = ListObjectsV2Request.builder()
-                .bucket(container)
-                .prefix(prefix.isEmpty() ? null : prefix)
-                .build();
-        while (true) {
-            var page = list(options, /*includeMultipart=*/ false);
-            objects.addAll(page.contents());
-            var token = page.nextContinuationToken();
-            if (token == null) {
-                break;
-            }
-            options = options.toBuilder().continuationToken(token).build();
+    /**
+     * The common prefix a key rolls up into under the delimiter, or the key
+     * itself when it rolls up into none.
+     */
+    private static String rollUp(String key, String prefix,
+            @Nullable String delimiter) {
+        if (delimiter == null || delimiter.isEmpty()) {
+            return key;
         }
-        return objects;
+        int index = key.indexOf(delimiter, prefix.length());
+        return index == -1 ? key :
+                key.substring(0, index + delimiter.length());
     }
 
     /**
