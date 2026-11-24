@@ -313,6 +313,17 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         return root.getFileSystem().getSeparator();
     }
 
+    /**
+     * The longest name the filesystem under this store keeps for one file
+     * or directory, counted as that filesystem counts it.  NIO has no way
+     * to ask, and 255 is the answer of every filesystem S3Proxy is run on --
+     * ext4, XFS, Btrfs, ZFS, APFS and NTFS alike.  A store whose filesystem
+     * has no such limit says so here.  See {@link #checkSegmentLength}.
+     */
+    protected int maxNameLength() {
+        return 255;
+    }
+
     @Override
     public final ListBucketsResponse list() {
         var set = ImmutableSortedSet.<Bucket>orderedBy(
@@ -3803,7 +3814,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * and the store itself never reaches it through one.
      *
      * <p>A key holding a "." or ".." segment is refused before it is
-     * resolved; see {@link #checkNoDotSegment}.
+     * resolved; see {@link #checkNoDotSegment}.  So is one holding a segment
+     * longer than a file name can be; see {@link #checkSegmentLength}.
      */
     private Path resolveBlobPath(Path containerPath, String key) {
         var slashBlob = containerPath.resolve(SLASH_BLOB_NAME);
@@ -3813,6 +3825,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             path = slashBlob;
         } else {
             checkNoDotSegment(key);
+            checkSegmentLength(containerPath, key);
             path = resolveName(containerPath, key, "key").normalize();
             String name = ReservedNames.fold(key);
             if (path.startsWith(slashBlob) ||
@@ -4235,6 +4248,40 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 throw S3Exceptions.invalidArgument("The key holds an empty" +
                         " path segment, a doubled slash, which this" +
                         " filesystem cannot store as a name.");
+            }
+        }
+    }
+
+    /**
+     * Refuse a key holding a path segment longer than a file name can be.
+     * S3 bounds a key as a whole; a filesystem bounds each name along the
+     * path, and reports one that is too long only once it has found every
+     * directory above it -- where one of those is missing, the key is just
+     * absent.  Left to the filesystem, reading such a key therefore failed
+     * under a prefix that holds objects and answered NoSuchKey under one
+     * that does not, which told a caller who may not list the bucket which
+     * prefixes are in use: the anonymous read of a private bucket answers
+     * AccessDenied for an absent key and had no such answer for the failure.
+     * No object can have this key, so it is refused before the filesystem is
+     * asked, with the same answer whatever the bucket holds -- and a write
+     * earns a 400 in place of the 500 it used to.
+     *
+     * <p>Windows counts a name in UTF-16 code units and every other host in
+     * bytes, counted here as UTF-8.
+     */
+    private void checkSegmentLength(Path containerPath, String key) {
+        int limit = maxNameLength();
+        boolean bytes = "/".equals(
+                containerPath.getFileSystem().getSeparator());
+        for (String segment : key.split("/", -1)) {
+            int length = bytes ?
+                    segment.getBytes(StandardCharsets.UTF_8).length :
+                    segment.length();
+            if (length > limit) {
+                throw S3Exceptions.invalidArgument("The key holds a path" +
+                        " segment longer than the " + limit + (bytes ?
+                        " bytes" : " characters") + " this filesystem can" +
+                        " store as a name.");
             }
         }
     }

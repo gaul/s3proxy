@@ -39,6 +39,12 @@ public final class TransientNio2BlobStore extends AbstractNio2BlobStore {
         super(fs.getPath("/"));
     }
 
+    /** Jimfs keeps a name of any length, so no key segment is too long. */
+    @Override
+    protected int maxNameLength() {
+        return Integer.MAX_VALUE;
+    }
+
     /**
      * Versioning is answered here and refused by the filesystem store, whose
      * versions would have to survive a restart: where this one keeps them is
