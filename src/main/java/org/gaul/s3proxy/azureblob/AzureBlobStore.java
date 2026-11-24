@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -691,12 +692,14 @@ public final class AzureBlobStore implements BlobStore {
             BlobItem first = it.next();
             String name = first.getName();
             boolean prefix = Boolean.TRUE.equals(first.isPrefix());
-            List<BlobItem> versions = new ArrayList<>();
-            versions.add(first);
-            while (!prefix && it.hasNext() &&
-                    !Boolean.TRUE.equals(it.peek().isPrefix()) &&
-                    it.peek().getName().equals(name)) {
-                versions.add(it.next());
+            // A key has as many versions as it was written times, and is
+            // listed by one: none of the others is held.
+            BlobItem latest = prefix ? first : null;
+            for (BlobItem version = first; !prefix && version != null;
+                    version = nextVersion(it, name)) {
+                if (!isDeletedStubVersion(name, version)) {
+                    latest = latestVersion(latest, version);
+                }
             }
             if (after != null && name.compareTo(after) <= 0) {
                 continue;
@@ -704,13 +707,9 @@ public final class AzureBlobStore implements BlobStore {
             if (isMultipartInternal(name)) {
                 continue;
             }
-            if (!prefix) {
-                versions = withoutDeletedStubVersions(name, versions);
-                if (versions.isEmpty()) {
-                    continue;
-                }
+            if (latest == null) {
+                continue;
             }
-            BlobItem latest = prefix ? first : latestVersion(versions);
             if (!prefix && isDeleteMarker(latest.getMetadata())) {
                 continue;
             }
@@ -772,6 +771,10 @@ public final class AzureBlobStore implements BlobStore {
             @Override
             protected @Nullable BlobItem computeNext() {
                 while (!page.hasNext()) {
+                    // Let the finished page go before the next is fetched:
+                    // a key's versions can fill any number of pages, and a
+                    // request waiting on Azure need hold none of them.
+                    page = Collections.emptyIterator();
                     PagedResponse<BlobItem> response;
                     if (first) {
                         first = false;
@@ -1279,9 +1282,9 @@ public final class AzureBlobStore implements BlobStore {
      * continuation token: the listing restarts from the key marker, which
      * Azure's startFrom includes, and drops what the client has already
      * seen.  Azure lists a key's versions oldest first where S3 lists them
-     * newest first, so a key is gathered whole before any of it is reported,
-     * and a page that ends inside a key -- even one whose versions straddle
-     * Azure pages -- resumes inside it.
+     * newest first, so a key is read to its end before any of it is
+     * reported, and a page that ends inside a key -- even one whose versions
+     * straddle Azure pages -- resumes inside it.
      */
     @Override
     public ListObjectVersionsResponse listVersions(
@@ -1349,44 +1352,51 @@ public final class AzureBlobStore implements BlobStore {
                 lastVersionId = null;
                 continue;
             }
-            List<BlobItem> versions = new ArrayList<>();
-            versions.add(first);
-            while (it.hasNext() && !Boolean.TRUE.equals(it.peek().isPrefix()) &&
-                    it.peek().getName().equals(name)) {
-                versions.add(it.next());
-            }
-            if (keyMarker != null && name.compareTo(keyMarker) < 0) {
-                continue;
-            }
-            if (isMultipartInternal(name)) {
-                continue;
-            }
-            versions = withoutDeletedStubVersions(name, versions);
-            if (versions.isEmpty()) {
-                continue;
-            }
-            BlobItem latest = latestVersion(versions);
-            for (var version : Lists.reverse(versions)) {
-                String vid = version.getVersionId() != null ?
-                        version.getVersionId() : NULL_VERSION_ID;
+            // A key has as many versions as it was written times, whatever
+            // maxKeys is.  The page reports the newest of those past the
+            // marker, which Azure lists last, so it holds no more of them
+            // than it has room for, and one to tell that more follow.
+            boolean beforeMarker = keyMarker != null &&
+                    name.compareTo(keyMarker) < 0;
+            // the store's own record of an upload is no object
+            boolean internal = isMultipartInternal(name);
+            int room = maxKeys - count;
+            var versions = new ArrayDeque<VersionRow>();
+            BlobItem latest = null;
+            for (BlobItem version = first; version != null;
+                    version = nextVersion(it, name)) {
+                if (beforeMarker || internal ||
+                        isDeletedStubVersion(name, version)) {
+                    continue;
+                }
+                latest = latestVersion(latest, version);
+                String vid = versionId(version);
                 if (name.equals(keyMarker) && (versionIdMarker == null ||
                         !isOlder(vid, versionIdMarker))) {
                     continue;
                 }
+                versions.addFirst(versionRow(version, vid));
+                if (versions.size() > room + 1) {
+                    versions.removeLast();
+                }
+            }
+            String latestId = latest == null ? null : versionId(latest);
+            for (var version : versions) {
+                String vid = version.versionId();
                 if (count == maxKeys) {
                     truncated = true;
                     break rows;
                 }
-                if (isDeleteMarker(version.getMetadata())) {
+                if (version.deleteMarker()) {
                     markers.add(DeleteMarkerEntry.builder()
                             .key(name)
                             .versionId(vid)
-                            .isLatest(version == latest)
-                            .lastModified(versionTime(version))
+                            .isLatest(vid.equals(latestId))
+                            .lastModified(version.lastModified())
                             .build());
                 } else {
-                    entries.add(objectVersion(version, vid,
-                            version == latest));
+                    entries.add(objectVersion(name, version,
+                            vid.equals(latestId)));
                 }
                 ++count;
                 lastKey = name;
@@ -1408,6 +1418,12 @@ public final class AzureBlobStore implements BlobStore {
         return builder.build();
     }
 
+    /** The id S3 knows a version by: Azure's, or "null" where it has none. */
+    private static String versionId(BlobItem version) {
+        return version.getVersionId() != null ?
+                version.getVersionId() : NULL_VERSION_ID;
+    }
+
     /**
      * Whether a version listed under {@code versionId} comes after, which is
      * to say is older than, the marker's in S3's newest-first order.  Azure
@@ -1425,6 +1441,21 @@ public final class AzureBlobStore implements BlobStore {
     }
 
     /**
+     * The next row of a listing when it is another version of the key
+     * {@code name}, which it is then taken from, or null when the key's rows
+     * have ended.  A key's versions can fill any number of Azure's pages, so
+     * the listings take them one at a time rather than gather them.
+     */
+    private static @Nullable BlobItem nextVersion(
+            PeekingIterator<BlobItem> rows, String name) {
+        if (!rows.hasNext() || Boolean.TRUE.equals(rows.peek().isPrefix()) ||
+                !rows.peek().getName().equals(name)) {
+            return null;
+        }
+        return rows.next();
+    }
+
+    /**
      * The version of a key that S3 calls latest, from its rows in the order
      * Azure lists them (oldest first): the one Azure flags current or,
      * failing that, the one with no version id -- a blob written while the
@@ -1432,19 +1463,21 @@ public final class AzureBlobStore implements BlobStore {
      * though a plain read serves it -- or, failing both, the newest: a key
      * whose current version was deleted by id has none flagged, and S3
      * promotes the newest remaining one, as reads of the key do here.
+     *
+     * <p>The rows are taken one at a time: {@code latest} is the answer for
+     * those before {@code next}, or null when it is the key's first.
      */
-    static BlobItem latestVersion(List<BlobItem> versions) {
-        for (var version : versions) {
-            if (Boolean.TRUE.equals(version.isCurrentVersion())) {
-                return version;
-            }
+    static BlobItem latestVersion(@Nullable BlobItem latest, BlobItem next) {
+        if (latest == null) {
+            return next;
         }
-        for (var version : versions) {
-            if (version.getVersionId() == null) {
-                return version;
-            }
+        if (Boolean.TRUE.equals(latest.isCurrentVersion())) {
+            return latest;
         }
-        return versions.get(versions.size() - 1);
+        if (Boolean.TRUE.equals(next.isCurrentVersion())) {
+            return next;
+        }
+        return latest.getVersionId() == null ? latest : next;
     }
 
     /**
@@ -1468,18 +1501,35 @@ public final class AzureBlobStore implements BlobStore {
         return modified == null ? null : modified.toInstant();
     }
 
-    private ObjectVersion objectVersion(BlobItem blob, String versionId,
-            boolean latest) {
+    /**
+     * What a version listing reports of one version.  A row as Azure lists
+     * it, with all its properties, is several times the size, and a page
+     * holds as many of a key's versions as it has room to report, while it
+     * reads the rest of them.
+     */
+    private record VersionRow(String versionId, boolean deleteMarker,
+            @Nullable Instant lastModified, String eTag, @Nullable Long size,
+            @Nullable AccessTier accessTier) {
+    }
+
+    private static VersionRow versionRow(BlobItem blob, String versionId) {
         var properties = blob.getProperties();
+        return new VersionRow(versionId, isDeleteMarker(blob.getMetadata()),
+                versionTime(blob), properties.getETag(),
+                properties.getContentLength(), properties.getAccessTier());
+    }
+
+    private ObjectVersion objectVersion(String name, VersionRow version,
+            boolean latest) {
         return ObjectVersion.builder()
-                .key(blob.getName())
-                .versionId(versionId)
+                .key(name)
+                .versionId(version.versionId())
                 .isLatest(latest)
-                .lastModified(versionTime(blob))
-                .eTag(reportETag(properties.getETag()))
-                .size(properties.getContentLength())
+                .lastModified(version.lastModified())
+                .eTag(reportETag(version.eTag()))
+                .size(version.size())
                 .storageClass(fromAccessTier(
-                        properties.getAccessTier()).toString())
+                        version.accessTier()).toString())
                 .build();
     }
 
@@ -2946,7 +2996,7 @@ public final class AzureBlobStore implements BlobStore {
      * stub goes too: its name is the upload's own, and nothing else is ever
      * written there.  A refused version delete is logged rather than failing
      * an upload that has already completed or been aborted; listings hide
-     * the stub versions it leaves (see {@link #withoutDeletedStubVersions}).
+     * the stub versions it leaves (see {@link #isDeletedStubVersion}).
      */
     private void deleteStub(BlobClient stub) {
         stub.delete();
@@ -3014,44 +3064,33 @@ public final class AzureBlobStore implements BlobStore {
      * it carries no version id.  The listing takes the key as its prefix,
      * which names every key under it too, and Azure lists names in order,
      * the key's own first; so it stops at the first name past the key
-     * rather than reading every page of the keys beneath it.
+     * rather than reading every page of the keys beneath it.  A key has as
+     * many versions as it was written times, so they are handed on as
+     * Azure's pages arrive rather than gathered.
      */
-    private static List<BlobItem> versions(BlobClientBase base) {
+    private static Iterable<BlobItem> versions(BlobClientBase base) {
+        String name = base.getBlobName();
         var options = new ListBlobsOptions()
-                .setPrefix(base.getBlobName())
+                .setPrefix(name)
                 .setDetails(new BlobListDetails()
                         .setRetrieveVersions(true)
                         .setRetrieveMetadata(true));
-        var versions = new ArrayList<BlobItem>();
-        for (BlobItem blob : base.getContainerClient().listBlobs(options,
-                /*timeout=*/ null)) {
-            if (!blob.getName().equals(base.getBlobName())) {
-                break;
-            }
-            versions.add(blob);
-        }
-        return versions;
+        return () -> base.getContainerClient()
+                .listBlobs(options, /*timeout=*/ null).stream()
+                .takeWhile(blob -> blob.getName().equals(name))
+                .iterator();
     }
 
     /**
-     * The versions of a key a listing shows: all of them, except under the
-     * multipart stub prefix, where only a stub still current is an upload in
-     * progress and anything else is a version Azure kept of a stub {@link
-     * #deleteStub} could not remove.
+     * Whether a listing leaves out a version of a key.  It shows all of
+     * them, except under the multipart stub prefix, where only a stub still
+     * current is an upload in progress and anything else is a version Azure
+     * kept of a stub {@link #deleteStub} could not remove.
      */
-    static List<BlobItem> withoutDeletedStubVersions(String name,
-            List<BlobItem> versions) {
-        if (!name.startsWith(STUB_BLOB_PREFIX)) {
-            return versions;
-        }
-        var current = new ArrayList<BlobItem>();
-        for (BlobItem version : versions) {
-            if (version.getVersionId() == null ||
-                    Boolean.TRUE.equals(version.isCurrentVersion())) {
-                current.add(version);
-            }
-        }
-        return current;
+    static boolean isDeletedStubVersion(String name, BlobItem version) {
+        return name.startsWith(STUB_BLOB_PREFIX) &&
+                version.getVersionId() != null &&
+                !Boolean.TRUE.equals(version.isCurrentVersion());
     }
 
     /**

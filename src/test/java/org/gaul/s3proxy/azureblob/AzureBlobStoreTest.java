@@ -29,9 +29,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.stream.LongStream;
 
 import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpHeaders;
@@ -67,6 +69,9 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 public final class AzureBlobStoreTest {
     /** The version a key left without a current one falls to. */
     private static final String REMAINING = "2026-01-01T00:00:00.0000000Z";
+
+    /** The size in bytes of a row of {@link #manyVersions}, about. */
+    private static final int VERSION_PADDING = 64 * 1024;
 
     /** The markers each call asked for, in order. */
     private final List<String> requested = new ArrayList<>();
@@ -347,6 +352,92 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * A key has as many versions as it was written times, which may be far
+     * more than a page reports.  The page takes the newest that fit in the
+     * room the keys before it left, names the latest though it reads the
+     * key's rows oldest first, and paging on lists every version once.
+     */
+    @Test
+    public void testVersionsPageOfKeyWithMoreVersionsThanFit() {
+        var rows = new ArrayList<BlobItem>();
+        rows.add(versionBlob("a", "2026-01-01T00:00:00.0000000Z", true, 1L));
+        for (int i = 1; i <= 7; ++i) {
+            rows.add(versionBlob("k", "2026-01-01T00:00:0" + i + ".0000000Z",
+                    /*current=*/ i == 7, i));
+        }
+        rows.add(versionBlob("m", "2026-01-01T00:00:09.0000000Z", true, 9L));
+        AzureBlobStore store = store(/*versioning=*/ true);
+
+        var first = store.versionsPage(rows.iterator(), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 3);
+        assertThat(first.isTruncated()).isTrue();
+        assertThat(first.versions()).extracting(v -> v.size())
+                .containsExactly(1L, 7L, 6L);
+        assertThat(first.versions()).extracting(v -> v.isLatest())
+                .containsExactly(true, true, false);
+        assertThat(first.nextKeyMarker()).isEqualTo("k");
+        assertThat(first.nextVersionIdMarker())
+                .isEqualTo("2026-01-01T00:00:06.0000000Z");
+
+        var sizes = new ArrayList<Long>();
+        var page = first;
+        while (page.isTruncated()) {
+            // startFrom lists from the marker's key again.
+            page = store.versionsPage(rows.subList(1, rows.size()).iterator(),
+                    page.nextKeyMarker(), page.nextVersionIdMarker(),
+                    /*maxKeys=*/ 3);
+            assertThat(page.versions()).hasSizeLessThanOrEqualTo(3);
+            page.versions().forEach(v -> {
+                assertThat(v.isLatest()).isEqualTo(v.key().equals("m"));
+                sizes.add(v.size());
+            });
+        }
+        assertThat(sizes).containsExactly(5L, 4L, 3L, 2L, 1L, 9L);
+    }
+
+    /**
+     * A version listing reads a key to its end to find its newest versions,
+     * and holds of it only what the page reports: here the key has more
+     * versions than the heap has room for.
+     */
+    @Test
+    public void testVersionsPageHoldsOnlyWhatItReports() {
+        long versions = versionsBeyondHeap();
+
+        var response = store(/*versioning=*/ true).versionsPage(
+                manyVersions("k", versions), /*keyMarker=*/ null,
+                /*versionIdMarker=*/ null, /*maxKeys=*/ 2);
+
+        assertThat(response.isTruncated()).isTrue();
+        assertThat(response.versions()).extracting(v -> v.size())
+                .containsExactly(versions, versions - 1);
+        assertThat(response.versions()).extracting(v -> v.isLatest())
+                .containsExactly(true, false);
+    }
+
+    /**
+     * A versioned listing reads Azure's pages one after another, empty ones
+     * included, and asks for the next only once it has handed on the rows of
+     * the one before.
+     */
+    @Test
+    public void testRowsReadsPageAfterPage() {
+        pages.add(page(List.of(blob("a"), blob("b")), "one"));
+        pages.add(page(List.of(), "two"));
+        pages.add(page(List.of(blob("c")), null));
+
+        var rows = AzureBlobStore.rows(new PagedIterable<BlobItem>(
+                () -> next(null), this::next));
+
+        assertThat(rows.next().getName()).isEqualTo("a");
+        assertThat(rows.next().getName()).isEqualTo("b");
+        assertThat(requested).containsExactly((String) null);
+        assertThat(rows.next().getName()).isEqualTo("c");
+        assertThat(rows.hasNext()).isFalse();
+        assertThat(requested).containsExactly(null, "one", "two");
+    }
+
+    /**
      * A versioned delete writes an empty blob tagged as a delete marker,
      * which a real account lists with its metadata like any version.  It is
      * reported as a DeleteMarker entry, not a Version, and as the latest
@@ -432,6 +523,23 @@ public final class AzureBlobStoreTest {
         assertThat(response.contents()).hasSize(1);
         assertThat(response.contents().get(0).key()).isEqualTo("k");
         assertThat(response.contents().get(0).size()).isEqualTo(2L);
+    }
+
+    /**
+     * A key is listed by its latest version alone, however many it has:
+     * here more than the heap has room for.
+     */
+    @Test
+    public void testLatestPageHoldsOneVersionOfAKey() {
+        long versions = versionsBeyondHeap();
+
+        var response = store(/*versioning=*/ true).latestPage(
+                manyVersions("k", versions), /*after=*/ null,
+                /*maxKeys=*/ 1000);
+
+        assertThat(response.contents()).extracting(o -> o.size())
+                .containsExactly(versions);
+        assertThat(response.isTruncated()).isFalse();
     }
 
     /**
@@ -820,6 +928,25 @@ public final class AzureBlobStoreTest {
                         .setContentLength(size)
                         .setLastModified(
                                 OffsetDateTime.parse("2026-01-01T00:00:00Z")));
+    }
+
+    /** How many rows of {@link #manyVersions} are twice the heap. */
+    private static long versionsBeyondHeap() {
+        return 2 * Runtime.getRuntime().maxMemory() / VERSION_PADDING;
+    }
+
+    /**
+     * The rows Azure lists for a key written {@code count} times, oldest
+     * first, each made as it is read, the way Azure's pages arrive.  Their
+     * metadata pads them, so that fewer of them fill the heap.
+     */
+    private static Iterator<BlobItem> manyVersions(String name, long count) {
+        return LongStream.rangeClosed(1, count)
+                .mapToObj(i -> versionBlob(name, "0xV" + i,
+                        /*current=*/ i == count, /*size=*/ i)
+                        .setMetadata(Map.of("padding",
+                                "x".repeat(VERSION_PADDING))))
+                .iterator();
     }
 
     private static BlobItem deleteMarker(BlobItem blob) {
