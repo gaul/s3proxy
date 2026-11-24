@@ -118,6 +118,28 @@ public final class MalformedRequestTest {
         assertThat(put(bucket + "?acl", policy).statusCode()).isEqualTo(200);
     }
 
+    /**
+     * Few elements nest in a request and few namespaces are in scope.  The
+     * parser looks a prefix up among all of those, so a body that declares
+     * more is refused rather than read on.
+     */
+    @Test
+    public void testXmlDeclarationsAndDepth() throws Exception {
+        var declarations = new StringBuilder();
+        for (int i = 0; i < 17; ++i) {
+            declarations.append(" xmlns:p").append(i).append("=\"u\"");
+        }
+        for (String unknown : List.of(
+                "<x" + declarations + "/>",
+                "<x>".repeat(17) + "</x>".repeat(17))) {
+            var response = put(bucket + "-new",
+                    "<CreateBucketConfiguration>" + unknown +
+                    "</CreateBucketConfiguration>");
+            assertThat(response.statusCode()).as(unknown).isEqualTo(400);
+            assertThat(response.body()).contains("MalformedXML");
+        }
+    }
+
     /** Creating or completing a multipart upload takes a key. */
     @Test
     public void testMultipartUploadWithoutAKey() throws Exception {

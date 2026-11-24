@@ -74,6 +74,7 @@ import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamWriter;
 
+import com.ctc.wstx.api.WstxInputProperties;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -622,6 +623,20 @@ public class S3ProxyHandler {
         inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         inputFactory.setProperty(
                 XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        // Woodstox resolves the prefix of a name by walking every namespace
+        // declaration in scope, so a body costs the product of its
+        // declarations and its names: half a minute of CPU for 8 MB.  Bound
+        // how many can be in scope.  Declarations count as attributes, and
+        // both limits default to 1000, while the deepest S3 request, an
+        // access control policy, nests five elements and puts two
+        // attributes on one.
+        for (String limit : List.of(
+                WstxInputProperties.P_MAX_ATTRIBUTES_PER_ELEMENT,
+                WstxInputProperties.P_MAX_ELEMENT_DEPTH)) {
+            if (inputFactory.isPropertySupported(limit)) {
+                inputFactory.setProperty(limit, 16);
+            }
+        }
         return XmlMapper.builder(new XmlFactory(inputFactory))
                 .configure(
                         DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
