@@ -46,6 +46,7 @@ import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.security.DigestInputStream;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -263,6 +264,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final int UUID_STRING_LENGTH =
             UUID.randomUUID().toString().length();
     private static final byte[] DIRECTORY_MD5 = MD5.hash(new byte[0]);
+    /** Where the ETag of an object under a customer key comes from. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
      * Orders the versions of one key.  A file name carries it rather than the
@@ -1180,6 +1183,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
 
             HashCode finalHashCode = hashCode;
+            var encryption = readEncryption(view, attributes);
             Blob.Builder builder = Blob.builder(key)
                     .userMetadata(userMetadata.build())
                     .payload(inputStream)
@@ -1190,15 +1194,18 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     .contentLength(size)
                     // Content-MD5 covers the full object; omit it for
                     // ranged responses so it does not mismatch the partial
-                    // body the client receives.
-                    .contentMD5(contentRange == null ? hashCode : null)
+                    // body the client receives, and for an object under a
+                    // customer key, whose ETag is no digest of it.
+                    .contentMD5(contentRange == null && (encryption == null ||
+                            encryption.customerKeyMD5() == null) ?
+                            hashCode : null)
                     .contentType(contentType)
                     .eTag(eTag)
                     .expires(expires)
                     .storageClass(storageClass)
                     .container(container)
                     .versionId(versionId)
-                    .encryption(readEncryption(view, attributes))
+                    .encryption(encryption)
                     .lastModified(lastModifiedTime);
             if (contentRange != null) {
                 builder.contentRange(contentRange);
@@ -1398,7 +1405,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // Null when the parts were joined by the kernel: nothing reads the
             // MD5 of an assembled multipart object, whose ETag is the digest
             // of the part digests that the caller already computed.
-            HashCode actualHashCode = null;
+            HashCode eTagHashCode = null;
             long holes = 0;
             // Close the streams before doing xattr writes, setBlobAccess,
             // and Files.move: Windows refuses to atomically move a file
@@ -1411,18 +1418,33 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         requireNonNull(blob.getPayload()), digest)) {
                     holes = writePayload(is, tmpPath);
                 }
-                actualHashCode = HashCode.fromBytes(digest.digest());
+                var actualHashCode = HashCode.fromBytes(digest.digest());
                 var expectedHashCode = metadata.contentMD5();
                 if (expectedHashCode != null &&
                         !actualHashCode.equals(expectedHashCode)) {
                     throw returnResponseException(400);
                 }
+                // The ETag of an object under a customer key is no MD5 of
+                // its data, as on S3.  Listings of objects, versions and
+                // parts show the ETag to callers who present no key, and a
+                // digest of the plaintext would let them confirm any guess
+                // at it, so such an object gets random bytes in its place.
+                var encryption = blob.getMetadata().encryption();
+                if (encryption != null &&
+                        encryption.customerKeyMD5() != null) {
+                    var opaque = new byte[MD5.LENGTH];
+                    SECURE_RANDOM.nextBytes(opaque);
+                    eTagHashCode = HashCode.fromBytes(opaque);
+                } else {
+                    eTagHashCode = actualHashCode;
+                }
             }
             // What this reports back: the payload's MD5 for a regular put,
-            // and for an assembled multipart the ETag the caller preset,
-            // since no digest of the whole object was taken.
-            String storedETag = actualHashCode != null ?
-                    actualHashCode.toString() :
+            // or what stands in for it under a customer key, and for an
+            // assembled multipart the ETag the caller preset, since no
+            // digest of the whole object was taken.
+            String storedETag = eTagHashCode != null ?
+                    eTagHashCode.toString() :
                     requireNonNull(blob.getMetadata().eTag());
 
             var view = getXattrView(tmpPath);
@@ -1438,7 +1460,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     var providedETag = blob.getMetadata().eTag();
                     var eTag = providedETag != null ?
                             providedETag.getBytes(StandardCharsets.US_ASCII) :
-                            requireNonNull(actualHashCode).asBytes();
+                            requireNonNull(eTagHashCode).asBytes();
                     view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(eTag));
                     writeStringAttributeIfPresent(view, XATTR_CACHE_CONTROL, metadata.cacheControl());
                     writeStringAttributeIfPresent(view, XATTR_CONTENT_DISPOSITION, metadata.contentDisposition());
@@ -3329,7 +3351,10 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         var partName = multipartPartName(mpu.id(), mpu.blobName(), request.partNumber());
         // The part rests under the upload's encryption as the stub and the
         // assembled object do.  Its name can be read like any other key, and
-        // a read is judged against the customer key the blob records.
+        // a read is judged against the customer key the blob records; under
+        // a customer key that also keeps its ETag, which ListParts shows and
+        // the assembled object's ETag digests, from being the MD5 of its
+        // data.
         var blob = Blob.builder(partName)
                 .payload(is)
                 .contentLength(requireNonNull(request.contentLength()))

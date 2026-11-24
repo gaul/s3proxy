@@ -26,6 +26,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.HexFormat;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.blobstore.BlobStore;
@@ -749,6 +750,82 @@ public final class ServerSideEncryptionTest {
                         .sseCustomerKey(encodeKey(KEY_A))
                         .sseCustomerKeyMD5(keyMD5(KEY_A))).asUtf8String())
                 .isEqualTo("payload");
+    }
+
+    @Test
+    public void testCustomerKeyETagIsNoDigestOfTheData() throws Exception {
+        startEncrypting();
+        byte[] md5 = MD5.hash("payload".getBytes(StandardCharsets.UTF_8));
+        String md5ETag = "\"" + HexFormat.of().formatHex(md5) + "\"";
+
+        // A listing shows an object's ETag to callers who present no key,
+        // so under a customer key it is no MD5 of the data, as on S3: one
+        // would let them confirm any guess at what the object holds.
+        var put = client.putObject(b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        assertThat(put.eTag()).isNotEqualTo(md5ETag);
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName))
+                .contents()).singleElement().satisfies(object ->
+                        assertThat(object.eTag()).isEqualTo(put.eTag()));
+
+        // The key's holder is told the ETag the listing shows.
+        assertThat(client.headObject(
+                b -> b.bucket(containerName).key("blob")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))).eTag())
+                .isEqualTo(put.eTag());
+
+        // Nor does it tell that two objects hold the same data.
+        var twin = client.putObject(b -> b.bucket(containerName).key("twin")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        assertThat(twin.eTag()).isNotEqualTo(put.eTag());
+
+        // A part is listed without the key as well, and the ETag of the
+        // object assembled from it digests the part's.
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        var part = client.uploadPart(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+        assertThat(part.eTag()).isNotEqualTo(md5ETag);
+        assertThat(client.listParts(b -> b.bucket(containerName).key("mpu")
+                .uploadId(create.uploadId())).parts()).singleElement()
+                .satisfies(listed ->
+                        assertThat(listed.eTag()).isEqualTo(part.eTag()));
+        var complete = client.completeMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId())
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(CompletedPart.builder()
+                                        .partNumber(1)
+                                        .eTag(part.eTag())
+                                        .build())
+                                .build())
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(complete.eTag()).isNotEqualTo(
+                "\"" + HexFormat.of().formatHex(MD5.hash(md5)) + "-1\"");
+
+        // An object under no key keeps the MD5 of its data.
+        var plain = client.putObject(
+                b -> b.bucket(containerName).key("plain"),
+                RequestBody.fromString("payload"));
+        assertThat(plain.eTag()).isEqualTo(md5ETag);
     }
 
     @Test
