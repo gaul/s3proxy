@@ -643,6 +643,30 @@ public final class PostObjectTest {
         assertThat(response.body()).contains("<Code>InvalidRequest</Code>");
     }
 
+    /**
+     * RFC 2046 allows a boundary 70 characters, quotes aside.  Jetty searches
+     * the body for whatever boundary the header names, at a cost that grows
+     * with its length, and does so before the form has been authorized -- so
+     * a longer one is refused before the body is read.
+     */
+    @Test
+    public void testOverlongBoundaryIsRefused() throws Exception {
+        blobStore.setContainerAccess(containerName,
+                BucketCannedACL.PUBLIC_READ_WRITE);
+        assertThat(postWithBoundary("a".repeat(70)).statusCode())
+                .isEqualTo(204);
+        assertThat(postWithBoundary("\"" + "a".repeat(70) + "\"")
+                .statusCode()).isEqualTo(204);
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isTrue();
+        blobStore.removeBlob(containerName, "foo.txt");
+
+        assertThat(postWithBoundary("a".repeat(71)).statusCode())
+                .isEqualTo(400);
+        assertThat(postWithBoundary("\"" + "a".repeat(71) + "\"")
+                .statusCode()).isEqualTo(400);
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
     /** A policy with no signature is a form built wrong, not a refusal. */
     @Test
     public void testPolicyWithoutSignature() throws Exception {
@@ -766,6 +790,25 @@ public final class PostObjectTest {
                 .header("Content-Type",
                         "multipart/form-data; boundary=" + BOUNDARY)
                 .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * An unsigned form whose Content-Type names the boundary exactly as
+     * given, quotes and all, and whose body is delimited by it unquoted.
+     */
+    private HttpResponse<String> postWithBoundary(String boundary)
+            throws Exception {
+        String delimiter = boundary.replace("\"", "");
+        return httpClient.send(HttpRequest.newBuilder(URI.create(bucketUri))
+                .header("Content-Type",
+                        "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "--" + delimiter + "\r\nContent-Disposition:" +
+                        " form-data; name=\"key\"\r\n\r\nfoo.txt\r\n" +
+                        "--" + delimiter + "\r\nContent-Disposition:" +
+                        " form-data; name=\"file\"; filename=\"x\"" +
+                        "\r\n\r\nbar\r\n--" + delimiter + "--\r\n"))
                 .build(), HttpResponse.BodyHandlers.ofString());
     }
 }

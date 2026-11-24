@@ -307,6 +307,12 @@ public class S3ProxyHandler {
     private static final long MAX_FORM_FIELDS_LENGTH = 20 * 1024;
     /** The longest key S3 allows, in bytes of its UTF-8 encoding. */
     private static final int MAX_BLOB_NAME_LENGTH = 1024;
+    /**
+     * The longest multipart boundary RFC 2046 allows.  Jetty searches a form
+     * for its boundary at a worst-case cost of the boundary's length for every
+     * byte of the body, and the form is parsed before anything authorizes it.
+     */
+    private static final int MAX_FORM_BOUNDARY_LENGTH = 70;
     /** The most buckets ListBuckets returns, and its max-buckets ceiling. */
     private static final int MAX_BUCKETS = 10_000;
     /** A SHA-256 as x-amz-content-sha256 spells it. */
@@ -6320,7 +6326,8 @@ public class S3ProxyHandler {
                 break;
             }
         }
-        if (Strings.isNullOrEmpty(boundary)) {
+        if (Strings.isNullOrEmpty(boundary) ||
+                boundary.length() > MAX_FORM_BOUNDARY_LENGTH) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
