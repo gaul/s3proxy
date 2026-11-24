@@ -109,6 +109,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectAclRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectAclResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
@@ -122,6 +124,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -1856,12 +1859,13 @@ public final class GCloudBlobStore implements BlobStore {
                 }
             }
         } catch (StorageException se) {
-            // On 404, distinguish a missing bucket from a missing object so
-            // the caller can emit NoSuchBucket vs NoSuchKey.
+            // A missing bucket answers 404 as a missing object does.  Which
+            // of them it was is not asked here: that is one more request,
+            // made for a missing key alone, and an anonymous read refused
+            // over it took that much longer than one of a private key.
+            // Whoever refuses such a read learns of a missing bucket from
+            // getContainerAccess, and getBlobAcl asks for its own caller.
             if (se.getCode() == 404) {
-                if (storage.get(container) == null) {
-                    throw S3Exceptions.noSuchBucket(container, "");
-                }
                 throw S3Exceptions.noSuchKey(container, key, "");
             }
             // The emulator returns ACL responses the SDK cannot deserialize
@@ -1904,6 +1908,23 @@ public final class GCloudBlobStore implements BlobStore {
             }
         }
         return ObjectCannedACL.PRIVATE;
+    }
+
+    /**
+     * The ACL of an object, for a caller who has signed for it: told apart
+     * here are the missing bucket and the missing object, which GCS reports
+     * alike, so that the frontend emits NoSuchBucket vs NoSuchKey.
+     */
+    @Override
+    public GetObjectAclResponse getBlobAcl(GetObjectAclRequest request) {
+        try {
+            return BlobStore.super.getBlobAcl(request);
+        } catch (NoSuchKeyException e) {
+            if (storage.get(request.bucket()) == null) {
+                throw S3Exceptions.noSuchBucket(request.bucket(), "");
+            }
+            throw e;
+        }
     }
 
     @Override

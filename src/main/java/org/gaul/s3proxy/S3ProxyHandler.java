@@ -1970,7 +1970,18 @@ public class S3ProxyHandler {
                     blobStore.getBlobAccess(containerName, blobName) :
                     blobStore.getBlobAccess(containerName, blobName,
                             versionId);
-            return access == ObjectCannedACL.PUBLIC_READ;
+            if (access == ObjectCannedACL.PUBLIC_READ) {
+                return true;
+            }
+            // The key is there and is private.  A missing key is refused
+            // below only once the store was asked for the bucket's ACL,
+            // which is a round trip to a remote one, so ask for it here too
+            // and make no use of the answer: returning without it refused a
+            // private key that much sooner than a missing one, and the time
+            // the same AccessDenied took told anyone which keys a private
+            // bucket holds.
+            var unused = checkPublicListAccess(blobStore, containerName);
+            return false;
         } catch (NoSuchBucketException e) {
             throw new S3ProxyException(S3ErrorCode.NO_SUCH_BUCKET, e);
         } catch (NoSuchKeyException e) {
@@ -2025,6 +2036,11 @@ public class S3ProxyHandler {
             if (e.statusCode() != HttpServletResponse.SC_FORBIDDEN) {
                 throw e;
             }
+            return false;
+        } catch (UnsupportedOperationException e) {
+            // A store that cannot say, the sharded middleware for a sharded
+            // bucket, grants nothing; relayed, its 501 answered a missing key
+            // differently from a private one, which is AccessDenied.
             return false;
         }
         return access == BucketCannedACL.PUBLIC_READ ||

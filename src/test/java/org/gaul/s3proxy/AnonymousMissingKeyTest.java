@@ -23,23 +23,29 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.google.common.io.ByteSource;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 /**
  * S3 answers a read of a missing key NoSuchKey only to a caller who may list
  * the bucket, and AccessDenied to anyone else.  An anonymous read of a
  * private bucket answered 404 for a missing key and 403 for a present one, so
- * anyone could learn which keys the bucket held.
+ * anyone could learn which keys the bucket held.  Once both answered 403,
+ * the missing key still cost the store one more request than the present
+ * one, and the time that took said the same thing.
  */
 public final class AnonymousMissingKeyTest {
     private S3Proxy s3Proxy;
@@ -47,6 +53,8 @@ public final class AnonymousMissingKeyTest {
     private String containerName;
     private String baseUri;
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    /** What deciding on a request asked of the store, in order. */
+    private final List<String> accessChecks = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -57,9 +65,25 @@ public final class AnonymousMissingKeyTest {
         TestUtils.putBlob(blobStore, containerName, "present",
                 ByteSource.wrap("private".getBytes(StandardCharsets.UTF_8)));
 
+        // Stand in for a remote store, where each of these is a round trip.
+        BlobStore recording = new ForwardingBlobStore(blobStore) {
+            @Override
+            public BucketCannedACL getContainerAccess(String container) {
+                accessChecks.add("getContainerAccess");
+                return super.getContainerAccess(container);
+            }
+
+            @Override
+            public ObjectCannedACL getBlobAccess(String container,
+                    String name) {
+                accessChecks.add("getBlobAccess");
+                return super.getBlobAccess(container, name);
+            }
+        };
+
         s3Proxy = S3Proxy.builder()
                 .stopTimeout(0)
-                .blobStore(blobStore)
+                .blobStore(recording)
                 .awsAuthentication(AuthenticationType.AWS_V2_OR_V4,
                         "identity", "credential")
                 .endpoint(URI.create("http://127.0.0.1:0"))
@@ -91,6 +115,27 @@ public final class AnonymousMissingKeyTest {
         }
         assertThat(send("GET", "missing").body())
                 .contains("<Code>AccessDenied</Code>");
+    }
+
+    /**
+     * Refusing a present key asks the store what refusing a missing one
+     * does.  One request fewer is one round trip sooner, which tells the two
+     * apart as well as the status did.
+     */
+    @Test
+    public void testPrivateBucketRefusesEitherKeyAtTheSameCost()
+            throws Exception {
+        for (String method : new String[] {"GET", "HEAD"}) {
+            accessChecks.clear();
+            assertThat(send(method, "present").statusCode()).as(method)
+                    .isEqualTo(403);
+            var present = List.copyOf(accessChecks);
+            accessChecks.clear();
+            assertThat(send(method, "missing").statusCode()).as(method)
+                    .isEqualTo(403);
+            assertThat(accessChecks).as(method).isNotEmpty()
+                    .isEqualTo(present);
+        }
     }
 
     /** A bucket anyone may list has no keys to hide, so S3 says NoSuchKey. */

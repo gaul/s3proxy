@@ -2582,16 +2582,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     public final ObjectCannedACL getBlobAccess(String container, String key,
             @Nullable String versionId) {
         var containerPath = requireContainerPath(container);
-        var path = aclPath(container, containerPath, key, versionId);
+        Path path;
+        NoSuchKeyException missing = null;
+        try {
+            path = aclPath(container, containerPath, key, versionId);
+        } catch (NoSuchKeyException nske) {
+            // A missing key has no permissions to read, and reading them is
+            // a round trip over SFTP: skipping it answered for a missing key
+            // that much sooner than for a private one, which told an
+            // anonymous reader refused either way which keys are there.  So
+            // read the container's in their place before saying so.
+            path = containerPath;
+            missing = nske;
+        }
 
         Set<PosixFilePermission> permissions;
         try {
             permissions = Files.getPosixFilePermissions(path);
         } catch (UnsupportedOperationException uoe) {
             // Windows/SMB/other non-POSIX: default to PRIVATE
-            return ObjectCannedACL.PRIVATE;
+            permissions = Set.of();
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
+        }
+        if (missing != null) {
+            throw missing;
         }
         return permissions.contains(PosixFilePermission.OTHERS_READ) ?
                 ObjectCannedACL.PUBLIC_READ : ObjectCannedACL.PRIVATE;
