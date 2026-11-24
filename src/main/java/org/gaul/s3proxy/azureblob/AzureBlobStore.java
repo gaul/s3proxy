@@ -1684,6 +1684,25 @@ public final class AzureBlobStore implements BlobStore {
         return url + (url.contains("?") ? "&" : "?") + token;
     }
 
+    /**
+     * Azure's refusal of a copy without its error document, which is the
+     * exception's message.  A copy names its source by
+     * {@link #signedSourceUrl} in a header, and the document for a header
+     * Azure rejects quotes the header, signature and all: a source key of
+     * some 230 characters outside ASCII is enough, percent-encoded past the
+     * 2 KiB a copy source may have.  An error {@link #translate} leaves as
+     * it came is logged with its message, so only the status and the error
+     * code, which are all that translate reads, travel on, whether as the
+     * error itself or as the cause of its translation.
+     */
+    private static BlobStorageException withoutErrorDocument(
+            BlobStorageException bse) {
+        var code = bse.getErrorCode();
+        return new BlobStorageException("Status code " + bse.getStatusCode() +
+                (code == null ? "" : ", " + code), bse.getResponse(),
+                /*value=*/ null);
+    }
+
     @Override
     public CopyObjectResponse copyBlob(CopyObjectRequest request) {
         checkNotReserved(request.destinationKey());
@@ -1839,21 +1858,22 @@ public final class AzureBlobStore implements BlobStore {
                     .copySourceVersionId(copiedVersionId(source))
                     .build();
         } catch (BlobStorageException bse) {
+            var refused = withoutErrorDocument(bse);
             // The copy is a request to the destination, so a container it
             // reports missing is that one; translated like the rest, the
             // error named the source bucket, which was there.
             if (BlobErrorCode.CONTAINER_NOT_FOUND.equals(
-                    bse.getErrorCode()) &&
+                    refused.getErrorCode()) &&
                     !containerExists(request.destinationBucket())) {
                 throw S3Exceptions.noSuchBucket(
-                        request.destinationBucket(), "", bse);
+                        request.destinationBucket(), "", refused);
             }
-            if (isMissingDestination(bse, request)) {
+            if (isMissingDestination(refused, request)) {
                 throw S3Exceptions.noSuchKey(request.destinationBucket(),
-                        request.destinationKey(), "", bse);
+                        request.destinationKey(), "", refused);
             }
-            if (bse.getStatusCode() != 501) {
-                throw translate(bse, fromContainer, fromName,
+            if (refused.getStatusCode() != 501) {
+                throw translate(refused, fromContainer, fromName,
                         request.sourceVersionId());
             }
             if (versioning) {
@@ -1920,11 +1940,12 @@ public final class AzureBlobStore implements BlobStore {
                         .versionId(properties.getVersionId())
                         .build();
             } catch (BlobStorageException bse2) {
-                if (isMissingDestination(bse2, request)) {
+                var copyRefused = withoutErrorDocument(bse2);
+                if (isMissingDestination(copyRefused, request)) {
                     throw S3Exceptions.noSuchKey(request.destinationBucket(),
-                            request.destinationKey(), "", bse2);
+                            request.destinationKey(), "", copyRefused);
                 }
-                throw translate(bse2, fromContainer, fromName,
+                throw translate(copyRefused, fromContainer, fromName,
                         request.sourceVersionId());
             }
         }
@@ -3401,7 +3422,8 @@ public final class AzureBlobStore implements BlobStore {
             eTag = md5 == null ? blockId : HexFormat.of().formatHex(
                     Base64.getDecoder().decode(md5));
         } catch (BlobStorageException bse) {
-            throw translate(bse, request.sourceBucket(), request.sourceKey(),
+            throw translate(withoutErrorDocument(bse),
+                    request.sourceBucket(), request.sourceKey(),
                     sourceVersionId);
         }
         return SdkResponses.copiedPart(eTag, /*lastModified=*/ null,
