@@ -33,7 +33,7 @@ import org.gaul.s3proxy.CompleteMultipartUploadRequest;
 import org.gaul.s3proxy.S3ErrorCode;
 import org.gaul.s3proxy.S3ProxyException;
 import org.gaul.s3proxy.blobstore.BlobStore;
-import org.gaul.s3proxy.nio2blob.AbstractNio2BlobStore;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 
 import software.amazon.awssdk.checksums.SdkChecksum;
@@ -141,11 +141,12 @@ public final class MpuChecksums {
      * matches the uploaded content no matter what per-part values the
      * completion request asserts (S3 ignores those beyond presence).  The
      * length comes back too, since combining CRCs into a full-object
-     * checksum needs it.
+     * checksum needs it.  The parts are read through the upload, as they
+     * were written, so that every middleware in between finds them where it
+     * put them; every referenced part has a digest in the result.
      */
     public static Map<Integer, PartChecksum> hashPartContents(
-            BlobStore blobStore, String containerName, String blobName,
-            String uploadId, FlexChecksum algorithm,
+            BlobStore blobStore, MultipartUpload mpu, FlexChecksum algorithm,
             CompleteMultipartUploadRequest cmu) throws IOException {
         var digests = new HashMap<Integer, PartChecksum>();
         var partNumbers = new TreeSet<Integer>();
@@ -156,13 +157,12 @@ public final class MpuChecksums {
         for (int partNumber : partNumbers) {
             ResponseInputStream<GetObjectResponse> blob;
             try {
-                blob = blobStore.getBlob(containerName,
-                        AbstractNio2BlobStore.multipartPartName(uploadId,
-                                blobName, partNumber));
+                blob = blobStore.getMultipartPart(mpu, partNumber);
             } catch (NoSuchKeyException nske) {
-                // a missing part is rejected elsewhere; fall back to the
-                // client-asserted value
-                continue;
+                // The part was listed a moment ago, so it has gone since.
+                // Its content is the only thing that vouches for the
+                // checksum; the value the request asserts is not.
+                throw new S3ProxyException(S3ErrorCode.INVALID_PART, nske);
             }
             SdkChecksum digest = algorithm.newChecksum();
             long length = 0;

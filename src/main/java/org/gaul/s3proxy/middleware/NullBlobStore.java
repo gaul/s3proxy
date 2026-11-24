@@ -243,6 +243,14 @@ final class NullBlobStore extends ForwardingBlobStore {
         return builder.build();
     }
 
+    @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        // the virtual content of the part, from the length stub
+        // uploadMultipartPart left for it
+        return getBlob(mpu.containerName(), mpu.id() + "-" + partNumber);
+    }
+
     private static final class NullByteSource extends ByteSource {
         @Override
         public InputStream openStream() throws IOException {

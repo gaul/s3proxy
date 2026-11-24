@@ -423,6 +423,12 @@ public abstract class ForwardingBlobStore extends ForwardingObject
     }
 
     @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        return delegate().getMultipartPart(mpu, partNumber);
+    }
+
+    @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
         return delegate().listMultipartUploads(container);

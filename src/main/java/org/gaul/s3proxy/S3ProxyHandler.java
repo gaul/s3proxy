@@ -7198,8 +7198,8 @@ public class S3ProxyHandler {
             // and to the part sizes the backend reports.
             Map<Integer, MpuChecksums.PartChecksum> partChecksums =
                     requiresStub ?
-                    MpuChecksums.hashPartContents(blobStore, containerName,
-                            blobName, uploadId, mpuAlgorithm, cmu) :
+                    MpuChecksums.hashPartContents(blobStore, mpu,
+                            mpuAlgorithm, cmu) :
                     null;
             mpuChecksum = MpuChecksums.compute(request, cmu, mpuAlgorithm,
                     partChecksums, listedPartSizes,

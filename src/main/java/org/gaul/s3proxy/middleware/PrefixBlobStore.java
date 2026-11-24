@@ -495,6 +495,13 @@ public final class PrefixBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        return super.getMultipartPart(toDelegateMultipartUpload(mpu),
+                partNumber);
+    }
+
+    @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
         var uploads = super.listMultipartUploads(container);

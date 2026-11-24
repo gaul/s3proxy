@@ -19,6 +19,7 @@ package org.gaul.s3proxy.crypto;
 import static java.util.Objects.requireNonNull;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collections;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -197,6 +198,40 @@ public final class PartPaddings {
         return new PartPaddings(
                 Collections.unmodifiableNavigableMap(partList),
                 unencryptedSize, encryptedSize, /*encrypted=*/ true);
+    }
+
+    /**
+     * Reads the padding of one part of an upload still in progress.  Until
+     * the upload completes such a part rests as an object of its own, its
+     * ciphertext followed by its padding and nothing else, so it decrypts as
+     * the single-part object it is whatever part number its padding carries.
+     * One that holds no padding answers an unencrypted part, as {@link #read}
+     * does for an object.
+     *
+     * @param part the stored part from its first byte, consumed and closed
+     * @param storedSize the length of {@code part}, padding included
+     */
+    public static PartPaddings readPart(InputStream part, long storedSize,
+            String partName) throws IOException {
+        PartPadding padding;
+        try (part) {
+            if (storedSize < Constants.PADDING_BLOCK_SIZE) {
+                return NOT_ENCRYPTED;
+            }
+            part.skipNBytes(storedSize - Constants.PADDING_BLOCK_SIZE);
+            padding = PartPadding.readPartPadding(part);
+        }
+        if (!padding.getDelimiter().equals(Constants.DELIMITER)) {
+            return NOT_ENCRYPTED;
+        }
+        checkPartSize(padding.getSize(), storedSize, partName);
+
+        var partList = new TreeMap<Integer, PartPadding>();
+        partList.put(1, padding);
+        return new PartPaddings(
+                Collections.unmodifiableNavigableMap(partList),
+                storedSize - Constants.PADDING_BLOCK_SIZE, storedSize,
+                /*encrypted=*/ true);
     }
 
     /** The paddings, numbered from the end of the object. */

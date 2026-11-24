@@ -740,6 +740,15 @@ final class ShardedBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        if (!this.buckets.containsKey(mpu.containerName())) {
+            return this.delegate().getMultipartPart(mpu, partNumber);
+        }
+        throw new UnsupportedOperationException("sharded bucket");
+    }
+
+    @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
         if (!this.buckets.containsKey(container)) {

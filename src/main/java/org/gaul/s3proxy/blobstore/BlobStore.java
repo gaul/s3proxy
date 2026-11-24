@@ -1060,6 +1060,22 @@ public interface BlobStore extends AutoCloseable {
      */
     List<Part> listMultipartUpload(MultipartUpload mpu);
 
+    /**
+     * Reads back one uploaded part of an upload still in progress, as the
+     * client sent it.  Only a store that keeps each part as an object of
+     * its own until completion can answer.  The upload names the part the
+     * way it does for {@link #uploadMultipartPart}, so a wrapper that
+     * renames the upload's bucket or key, or transforms what is stored,
+     * reverses for the part exactly what it applied to it -- which a read
+     * of the part's stored name through {@link #getBlob} cannot promise.  A
+     * part that is not there throws by {@link #getBlob}'s rules.
+     */
+    default ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        throw new UnsupportedOperationException(
+                "backend does not keep the parts of an upload readable");
+    }
+
     List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container);
 

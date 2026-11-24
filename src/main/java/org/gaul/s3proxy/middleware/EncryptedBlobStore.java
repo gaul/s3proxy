@@ -800,6 +800,37 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
     }
 
     /**
+     * One part of an upload in progress, decrypted.  The IV it was encrypted
+     * under rests in the padding behind its ciphertext, so the part is read
+     * twice: once for the padding, once for the plaintext.
+     */
+    @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+        MultipartUpload mpu, int partNumber) {
+
+        mpu = filterMultipartUpload(mpu);
+        try {
+            var stored = delegate().getMultipartPart(mpu, partNumber);
+            var paddings = PartPaddings.readPart(stored,
+                requireNonNull(stored.response().contentLength()),
+                "part " + partNumber + " of upload " + mpu.id());
+            var decryption = new Decryption(secretKey, paddings, 0, -1);
+
+            var blob = delegate().getMultipartPart(mpu, partNumber);
+            var response = blob.response();
+            if (decryption.isEncrypted()) {
+                response = response.toBuilder()
+                    .contentLength(decryption.getContentLength())
+                    .build();
+            }
+            return SdkResponses.getResponse(response,
+                decryption.openStream(blob));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
      * The upload restated under the name its parts are stored beneath.  The
      * key arrives as the client spelled it -- the handler rebuilds the upload
      * from the request URI for every part, completion and abort, and the

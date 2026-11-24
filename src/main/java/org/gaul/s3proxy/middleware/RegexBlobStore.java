@@ -261,6 +261,13 @@ public final class RegexBlobStore extends ForwardingBlobStore {
         return super.listMultipartUpload(rewriteMultipartUpload(mpu));
     }
 
+    @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        return super.getMultipartPart(rewriteMultipartUpload(mpu),
+                partNumber);
+    }
+
     private MultipartUpload rewriteMultipartUpload(MultipartUpload mpu) {
         String name = mpu.blobName();
         String newName = replaceBlobName(name);

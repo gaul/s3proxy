@@ -2702,11 +2702,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /**
-     * Name of the hidden blob storing one uploaded part's content.  Exposed
-     * so S3ProxyHandler can read part content back, e.g. to compute the
-     * composite checksum during CompleteMultipartUpload.
+     * Name of the hidden blob storing one uploaded part's content.  Not for
+     * use outside this store: a wrapper may have renamed the upload's key on
+     * the way here, so only the upload this store is handed says where the
+     * part is.  {@link #getMultipartPart} reads one back.
      */
-    public static String multipartPartName(String uploadId, String blobName,
+    private static String multipartPartName(String uploadId, String blobName,
             int partNumber) {
         return MULTIPART_PREFIX + uploadId + "-" + blobName + "-" +
                 partNumber;
@@ -2964,6 +2965,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // part 2
         return ImmutableList.sortedCopyOf(
                 Comparator.comparingInt(Part::partNumber), parts.build());
+    }
+
+    @Override
+    public final ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        return getBlob(mpu.containerName(), multipartPartName(mpu.id(),
+                mpu.blobName(), partNumber));
     }
 
     @Override

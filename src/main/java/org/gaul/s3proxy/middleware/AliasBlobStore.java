@@ -411,6 +411,12 @@ public final class AliasBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public ResponseInputStream<GetObjectResponse> getMultipartPart(
+            MultipartUpload mpu, int partNumber) {
+        return delegate().getMultipartPart(getDelegateMpu(mpu), partNumber);
+    }
+
+    @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
         // The listing names only keys and upload ids; the container alias
