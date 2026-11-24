@@ -97,15 +97,26 @@ public final class Nio2ListPrefixTest {
     public void testNamesBeginningWithDotsStillList() throws IOException {
         put(CONTAINER, "..hidden");
         put(CONTAINER, "dir/..hidden");
-        put(CONTAINER, ".../file.txt");
+        // Windows trims the dots that end a name, so "..." is no directory
+        // name there
+        boolean dotsDirectory = !root.getFileSystem().getSeparator()
+                .equals("\\");
+        if (dotsDirectory) {
+            put(CONTAINER, ".../file.txt");
+        }
 
         assertThat(keys("..h")).containsExactly("..hidden");
         assertThat(keys("dir/..h")).containsExactly("dir/..hidden");
-        assertThat(keys(".../")).containsExactly(".../file.txt");
         assertThat(keys("dir/")).containsExactly("dir/..hidden",
                 "dir/file.txt");
-        assertThat(keys("")).containsExactly(".../file.txt", "..hidden",
-                "dir/..hidden", "dir/file.txt", "sibling/file.txt");
+        if (dotsDirectory) {
+            assertThat(keys(".../")).containsExactly(".../file.txt");
+            assertThat(keys("")).containsExactly(".../file.txt", "..hidden",
+                    "dir/..hidden", "dir/file.txt", "sibling/file.txt");
+        } else {
+            assertThat(keys("")).containsExactly("..hidden",
+                    "dir/..hidden", "dir/file.txt", "sibling/file.txt");
+        }
     }
 
     private void use(AbstractNio2BlobStore blobStore) throws IOException {
