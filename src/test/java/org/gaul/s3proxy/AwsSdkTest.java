@@ -3705,6 +3705,41 @@ public final class AwsSdkTest {
     }
 
     @Test
+    public void testDirectoryMarkerMetadataIsReplaced() throws Exception {
+        // A marker is the directory itself and its attributes are written in
+        // place.  Neither overwriting the marker nor deleting it from above
+        // the keys that keep its directory may leave the old metadata to be
+        // served with the next marker stored there.
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String marker = "testdir-stale-metadata/";
+        client.putObject(b -> b.bucket(containerName).key(marker)
+                .contentDisposition("attachment; filename=old")
+                .metadata(Map.of("old", "value")),
+                RequestBody.empty());
+        putBlob(containerName, marker + "child", BYTE_SOURCE);
+
+        client.putObject(b -> b.bucket(containerName).key(marker)
+                .cacheControl("no-store")
+                .metadata(Map.of("new", "value")),
+                RequestBody.empty());
+        HeadObjectResponse overwritten = client.headObject(
+                b -> b.bucket(containerName).key(marker));
+        assertThat(overwritten.metadata()).isEqualTo(Map.of("new", "value"));
+        assertThat(overwritten.contentDisposition()).isNull();
+        assertThat(overwritten.cacheControl()).isEqualTo("no-store");
+
+        client.deleteObject(b -> b.bucket(containerName).key(marker));
+        client.putObject(b -> b.bucket(containerName).key(marker),
+                RequestBody.empty());
+        HeadObjectResponse recreated = client.headObject(
+                b -> b.bucket(containerName).key(marker));
+        assertThat(recreated.metadata()).isEmpty();
+        assertThat(recreated.cacheControl()).isNull();
+    }
+
+    @Test
     public void testDirectoryMarkerListMetadata() throws Exception {
         // Per the S3 API every <Contents> entry in a ListObjects(V1/V2)
         // response must carry <Size>, <LastModified> and <ETag>, even for a

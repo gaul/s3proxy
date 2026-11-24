@@ -452,6 +452,54 @@ public final class ServerSideEncryptionTest {
         assertThat(get.asUtf8String()).isEqualTo("payload");
     }
 
+    /**
+     * A key ending in a slash is kept as a directory, written again in place
+     * rather than replaced, so a marker written a second time must take
+     * nothing over from the first -- nor from one deleted while keys below
+     * it kept the directory.  A customer key left behind made the owner's
+     * later marker answer 400 to every read without that key.
+     */
+    @Test
+    public void testDirectoryMarkerForgetsItsEncryption() throws Exception {
+        startEncrypting();
+
+        for (boolean deleted : new boolean[] {false, true}) {
+            String marker = "dir" + deleted + "/";
+            if (deleted) {
+                client.putObject(b -> b.bucket(containerName)
+                        .key(marker + "blob"), RequestBody.empty());
+            }
+            client.putObject(b -> b.bucket(containerName).key(marker)
+                            .sseCustomerAlgorithm("AES256")
+                            .sseCustomerKey(encodeKey(KEY_A))
+                            .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                    RequestBody.empty());
+            if (deleted) {
+                client.deleteObject(b -> b.bucket(containerName).key(marker));
+            }
+            client.putObject(b -> b.bucket(containerName).key(marker),
+                    RequestBody.empty());
+            var head = client.headObject(
+                    b -> b.bucket(containerName).key(marker));
+            assertThat(head.sseCustomerAlgorithm()).as(marker).isNull();
+
+            client.putObject(b -> b.bucket(containerName).key(marker)
+                            .serverSideEncryption(ServerSideEncryption.AWS_KMS)
+                            .ssekmsKeyId(KMS_KEY_ID),
+                    RequestBody.empty());
+            if (deleted) {
+                client.deleteObject(b -> b.bucket(containerName).key(marker));
+            }
+            client.putObject(b -> b.bucket(containerName).key(marker),
+                    RequestBody.empty());
+            head = client.headObject(
+                    b -> b.bucket(containerName).key(marker));
+            assertThat(head.serverSideEncryption()).as(marker)
+                    .isNotEqualTo(ServerSideEncryption.AWS_KMS);
+            assertThat(head.ssekmsKeyId()).as(marker).isNull();
+        }
+    }
+
     @Test
     public void testCustomerKeyAnswersOnlyToItself() throws Exception {
         startEncrypting();

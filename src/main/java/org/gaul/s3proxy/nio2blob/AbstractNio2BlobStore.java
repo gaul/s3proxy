@@ -74,6 +74,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.MapMaker;
 import com.google.common.hash.HashCode;
@@ -259,6 +260,20 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private static final String XATTR_SSE_C_ALGORITHM =
             "sse-c-algorithm";
     private static final String XATTR_SSE_C_KEY_MD5 = "sse-c-key-md5";
+    /**
+     * Everything a write leaves on a directory marker beside its ETag: what
+     * a marker written again, or deleted while keys below it keep its
+     * directory, has to take off it.  Named one by one, since the
+     * container's own directory carries attributes too -- its versioning,
+     * its default encryption -- that are not a marker's to remove.
+     */
+    private static final Set<String> MARKER_ATTRIBUTES =
+            ImmutableSet.<String>builder()
+                    .addAll(METADATA_ATTRIBUTES)
+                    .add(XATTR_SSE_ALGORITHM, XATTR_SSE_KMS_KEY_ID,
+                            XATTR_SSE_KMS_CONTEXT, XATTR_SSE_BUCKET_KEY,
+                            XATTR_SSE_C_ALGORITHM, XATTR_SSE_C_KEY_MD5)
+                    .build();
     /** The version id every write to an unversioned container carries. */
     private static final String NULL_VERSION_ID = "null";
     private static final int UUID_STRING_LENGTH =
@@ -1348,15 +1363,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 var view = getXattrView(path);
                 if (view != null) {
                     try {
-                        // A marker written again replaces its metadata; the
-                        // directory is the same one, so what the last write
-                        // left has to be taken off it first.
-                        for (String name : view.list()) {
-                            if (METADATA_ATTRIBUTES.contains(name) ||
-                                    name.startsWith(XATTR_USER_METADATA_PREFIX)) {
-                                view.delete(name);
-                            }
-                        }
+                        // A marker written again replaces its metadata and
+                        // its encryption; the directory is the same one, so
+                        // what the last write left has to be taken off it
+                        // first.
+                        removeMarkerAttributes(view);
                         writeCommonMetadataAttr(view, blob);
                         view.write(XATTR_CONTENT_MD5, ByteBuffer.wrap(DIRECTORY_MD5));
                     } catch (IOException | UnsupportedOperationException e) {
@@ -2263,7 +2274,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * Handles deleting a directory-marker key ("dir/") whose directory still
      * holds objects: the directory must stay for those objects, so drop only
      * the marker attribute rather than failing with 500.  A later GET of the
-     * marker then correctly reports it absent.
+     * marker then correctly reports it absent.  The rest of what the marker
+     * carried goes too, so that nothing of a deleted object lingers on the
+     * store; the ETag goes first, so that a marker cleared only in part
+     * reads as absent.  Callers hold versionLock, as every marker write
+     * does, so no write is putting attributes back meanwhile.
      */
     private void clearDirectoryMarker(Path path) {
         var view = getXattrView(path);
@@ -2272,12 +2287,28 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 if (view.list().contains(XATTR_CONTENT_MD5)) {
                     view.delete(XATTR_CONTENT_MD5);
                 }
+                removeMarkerAttributes(view);
             } catch (IOException | UnsupportedOperationException e) {
                 try {
                     attributeWriteFailed(path, e);
                 } catch (IOException ioe) {
                     throw new RuntimeException(ioe);
                 }
+            }
+        }
+    }
+
+    /**
+     * Removes what a write left on a directory marker besides its ETag: the
+     * response headers, the user metadata -- recorded checksums among it --
+     * and the encryption.
+     */
+    private static void removeMarkerAttributes(
+            UserDefinedFileAttributeView view) throws IOException {
+        for (String name : view.list()) {
+            if (MARKER_ATTRIBUTES.contains(name) ||
+                    name.startsWith(XATTR_USER_METADATA_PREFIX)) {
+                view.delete(name);
             }
         }
     }
