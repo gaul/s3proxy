@@ -3206,6 +3206,86 @@ public final class AwsSdkTest {
     }
 
     /**
+     * A key ending in a slash is a directory on the nio2 stores, which keeps
+     * no content, but its body is verified like any other: the stores
+     * answered without reading it, so a digest that did not describe the
+     * body was accepted and reported as the checksum of the marker.
+     */
+    @Test
+    public void testDirectoryMarkerBodyIsVerified() throws Exception {
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+
+        String marker = "verified-marker/";
+        // A marker with content is refused, since 083c501 for the content
+        // itself, before or after its digest is looked at.
+        try {
+            client.putObject(b -> b.bucket(containerName).key(marker)
+                    // the digest of no bytes
+                    .contentMD5("1B2M2Y8AsgTpgAmY7PhCfg=="),
+                    RequestBody.fromString("content"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(400);
+        }
+        // An empty one is held to its digest: this is the SHA-256 of
+        // "content", which an empty marker would have reported as its own.
+        try {
+            client.putObject(b -> b.bucket(containerName).key(marker)
+                    .checksumSHA256(
+                            "7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M="),
+                    RequestBody.empty());
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.awsErrorDetails().errorCode()).isEqualTo("BadDigest");
+        }
+
+        var listing = client.listObjectsV2(b -> b.bucket(containerName)
+                .delimiter("/"));
+        assertThat(listing.commonPrefixes()).isEmpty();
+        assertThat(listing.contents()).isEmpty();
+    }
+
+    /**
+     * Nor does a directory marker answer for content it did not keep: a
+     * checksum that is right for a body the store dropped is wrong for the
+     * empty object a read finds, and so is one left by an earlier marker.
+     */
+    @Test
+    public void testDirectoryMarkerChecksumDescribesMarker() throws Exception {
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
+        assumeTrue(!Quirks.NO_PERSISTED_METADATA.contains(blobStoreType));
+
+        String marker = "checksum-marker/";
+        var content = "content".getBytes(StandardCharsets.UTF_8);
+        // a body the marker cannot keep is refused, its checksum with it
+        assertThatThrownBy(() -> client.putObject(b -> b
+                .bucket(containerName).key(marker)
+                .checksumSHA256(Base64.getEncoder().encodeToString(
+                        Hashing.sha256().hashBytes(content).asBytes())),
+                RequestBody.fromBytes(content)))
+                .isInstanceOfSatisfying(S3Exception.class,
+                        e -> assertThat(e.statusCode()).isEqualTo(400));
+        HeadObjectResponse metadata;
+
+        // the checksum of no bytes does describe the marker
+        String emptySha256 = "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+        client.putObject(b -> b.bucket(containerName).key(marker)
+                .checksumSHA256(emptySha256), RequestBody.empty());
+        metadata = client.headObject(b -> b.bucket(containerName).key(marker)
+                .checksumMode(ChecksumMode.ENABLED));
+        assertThat(metadata.checksumSHA256()).isEqualTo(emptySha256);
+
+        // and goes when the marker is written again without it
+        String emptyCrc32 = "AAAAAA==";
+        client.putObject(b -> b.bucket(containerName).key(marker)
+                .checksumCRC32(emptyCrc32), RequestBody.empty());
+        metadata = client.headObject(b -> b.bucket(containerName).key(marker)
+                .checksumMode(ChecksumMode.ENABLED));
+        assertThat(metadata.checksumSHA256()).isNull();
+        assertThat(metadata.checksumCRC32()).isEqualTo(emptyCrc32);
+    }
+
+    /**
      * The names a store keeps for itself are reserved at the top of a
      * bucket.  Under a prefix they are keys like any other: the nio2 stores
      * accepted such a PUT and then left the object out of every listing.
