@@ -78,6 +78,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -562,6 +563,114 @@ public final class EncryptedBlobStoreTest {
         }
 
         assertThat(encryptedBlobStore.list().buckets()).isNotEmpty();
+    }
+
+    /** Stores an object the way it was before encryption was turned on. */
+    private void putUnencrypted(String blobName, byte[] content) {
+        blobStore.putBlob(
+                makeRequest(containerName, blobName, content.length),
+                new ByteArrayInputStream(content));
+    }
+
+    /**
+     * An object stored before encryption was turned on rests under its key,
+     * and a write through the wrapper lands beside it under the suffixed
+     * name.  The older one has to go at that point: left behind it stays in
+     * the store unencrypted, is listed next to its replacement, and is what
+     * the key answers with again once the replacement is deleted.
+     */
+    @Test
+    public void testOverwriteRemovesUnencryptedBlob() throws Exception {
+        byte[] old = "before encryption".getBytes(StandardCharsets.UTF_8);
+        byte[] replacement = filler(0, LAST_PART_SIZE);
+
+        String putName = TestUtils.createRandomBlobName();
+        putUnencrypted(putName, old);
+        encryptedBlobStore.putBlob(
+                makeRequest(containerName, putName, replacement.length),
+                new ByteArrayInputStream(replacement));
+
+        String copyName = TestUtils.createRandomBlobName();
+        putUnencrypted(copyName, old);
+        encryptedBlobStore.copyBlob(CopyObjectRequest.builder()
+                .sourceBucket(containerName).sourceKey(putName)
+                .destinationBucket(containerName).destinationKey(copyName)
+                .build());
+
+        String multipartName = TestUtils.createRandomBlobName();
+        putUnencrypted(multipartName, old);
+        MultipartUpload mpu = encryptedBlobStore.initiateMultipartUpload(
+                TestUtils.createRequest(containerName, multipartName));
+        TestUtils.uploadPart(encryptedBlobStore, mpu, 1,
+                new ByteArrayInputStream(replacement), replacement.length);
+        encryptedBlobStore.completeMultipartUpload(mpu,
+                TestUtils.completeRequest(mpu,
+                        encryptedBlobStore.listMultipartUpload(mpu)));
+
+        var names = List.of(putName, copyName, multipartName);
+        assertThat(encryptedBlobStore.list(containerName).contents())
+                .extracting(S3Object::key)
+                .containsExactlyInAnyOrderElementsOf(names);
+        for (String name : names) {
+            assertThat(blobStore.blobExists(containerName, name)).isFalse();
+            try (var is = encryptedBlobStore.getBlob(containerName, name)) {
+                assertThat(is.readAllBytes()).isEqualTo(replacement);
+            }
+
+            encryptedBlobStore.removeBlob(containerName, name);
+            assertThat(encryptedBlobStore.blobExists(containerName, name))
+                    .isFalse();
+        }
+    }
+
+    /**
+     * A store written to before the overwrite removed the older object
+     * holds both, and deleting the key has to leave neither: the encrypted
+     * one alone going would hand the key back to the object it replaced.
+     */
+    @Test
+    public void testRemoveBlobRemovesUnencryptedBlob() throws Exception {
+        byte[] old = "before encryption".getBytes(StandardCharsets.UTF_8);
+        byte[] replacement = filler(0, LAST_PART_SIZE);
+        String blobName = TestUtils.createRandomBlobName();
+        encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, replacement.length),
+                new ByteArrayInputStream(replacement));
+        putUnencrypted(blobName, old);
+
+        encryptedBlobStore.removeBlob(containerName, blobName);
+
+        assertThat(encryptedBlobStore.blobExists(containerName, blobName))
+                .isFalse();
+        assertThat(blobStore.blobExists(containerName, blobName)).isFalse();
+        assertThat(blobStore.blobExists(containerName,
+                blobName + Constants.S3_ENC_SUFFIX)).isFalse();
+    }
+
+    /**
+     * The filesystem stores refuse a key whose last segment is "." yet take
+     * it with the suffix on, so there is an object to write and delete whose
+     * unsuffixed name cannot even be asked after.  Looking there for an older
+     * object must not turn that refusal into the request's answer.
+     */
+    @Test
+    public void testKeyRefusedWithoutTheSuffix() throws Exception {
+        assumeTrue(Quirks.NIO2_BACKENDS.contains(provider));
+        byte[] content = filler(0, LAST_PART_SIZE);
+        String blobName = TestUtils.createRandomBlobName() + "/.";
+        assertThatThrownBy(() -> blobStore.blobExists(containerName,
+                blobName)).isInstanceOf(S3Exception.class);
+
+        encryptedBlobStore.putBlob(
+                makeRequest(containerName, blobName, content.length),
+                new ByteArrayInputStream(content));
+        try (var is = encryptedBlobStore.getBlob(containerName, blobName)) {
+            assertThat(is.readAllBytes()).isEqualTo(content);
+        }
+
+        encryptedBlobStore.removeBlob(containerName, blobName);
+        assertThat(blobStore.blobExists(containerName,
+                blobName + Constants.S3_ENC_SUFFIX)).isFalse();
     }
 
     /**

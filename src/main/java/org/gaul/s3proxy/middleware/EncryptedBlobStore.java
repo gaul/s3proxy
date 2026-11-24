@@ -86,6 +86,7 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -497,6 +498,35 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         return name + Constants.S3_ENC_SUFFIX;
     }
 
+    /**
+     * Removes the object a key was stored as before encryption was turned
+     * on, which the key's encrypted form replaces.  Every lookup prefers the
+     * suffixed name and falls back to the key itself, so an older object
+     * left there is hidden only for as long as the encrypted one exists:
+     * deleting that one would bring the older back, content and ACL both,
+     * and until then it rests in the store unencrypted and is listed beside
+     * its replacement.  A key ending in the suffix has no such form -- its
+     * unsuffixed name is where another key is stored; see {@link
+     * #blobNameWithSuffix(String, String)}.
+     */
+    private void removeUnencryptedBlob(String container, String name) {
+        if (isEncrypted(name)) {
+            return;
+        }
+        try {
+            if (delegate().blobExists(container, name)) {
+                delegate().removeBlob(container, name);
+            }
+        } catch (S3Exception se) {
+            // A store may refuse a name it takes with the suffix on -- the
+            // filesystem ones refuse a key whose last segment is "." -- and
+            // a name nothing can be stored under holds no older object.
+            if (se.statusCode() != 400) {
+                throw se;
+            }
+        }
+    }
+
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
         GetObjectRequest request) {
@@ -677,11 +707,14 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         // size; drop the MD5 and the flexible checksums since encryption
         // changes the bytes they describe
         String key = request.key();
-        return delegate().putBlob(FlexChecksum.clearOn(request.toBuilder()
+        PutObjectResponse response = delegate().putBlob(
+                FlexChecksum.clearOn(request.toBuilder()
                 .key(blobNameWithSuffix(key))
                 .contentLength(contentLength + Constants.PADDING_BLOCK_SIZE)
                 .contentMD5(null))
                 .build(), encrypted);
+        removeUnencryptedBlob(request.bucket(), key);
+        return response;
     }
 
     /**
@@ -707,11 +740,15 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
                 delegate().blobExists(request.sourceBucket(), blobName)) {
             checkIfNoneMatch(request.destinationBucket(),
                     request.destinationKey(), request.ifNoneMatch());
-            request = request.toBuilder()
+            String destinationKey = request.destinationKey();
+            CopyObjectResponse response = delegate().copyBlob(
+                    request.toBuilder()
                     .sourceKey(blobName)
-                    .destinationKey(blobNameWithSuffix(
-                            request.destinationKey()))
-                    .build();
+                    .destinationKey(blobNameWithSuffix(destinationKey))
+                    .build());
+            removeUnencryptedBlob(request.destinationBucket(),
+                    destinationKey);
+            return response;
         }
 
         return delegate().copyBlob(request);
@@ -719,8 +756,17 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
     @Override
     public DeleteObjectResponse removeBlob(DeleteObjectRequest request) {
+        String container = request.bucket();
+        String key = request.key();
+        String stored = blobNameWithSuffix(container, key);
+        if (!stored.equals(key)) {
+            // The key has an encrypted form, so anything under the key
+            // itself is the older object it replaced and goes with it --
+            // and goes first, since it is the encrypted form that hides it.
+            removeUnencryptedBlob(container, key);
+        }
         return delegate().removeBlob(request.toBuilder()
-                .key(blobNameWithSuffix(request.bucket(), request.key()))
+                .key(stored)
                 .build());
     }
 
@@ -914,10 +960,13 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
 
         String key = request.key();
         checkIfNoneMatch(request.bucket(), key, request.ifNoneMatch());
-        return delegate().completeMultipartUpload(filterMultipartUpload(mpu),
-            request.toBuilder()
-                .key(blobNameWithSuffix(key))
-                .build());
+        CompleteMultipartUploadResponse response =
+            delegate().completeMultipartUpload(filterMultipartUpload(mpu),
+                request.toBuilder()
+                    .key(blobNameWithSuffix(key))
+                    .build());
+        removeUnencryptedBlob(request.bucket(), key);
+        return response;
     }
 
     @Override
