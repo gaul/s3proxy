@@ -17,6 +17,7 @@
 package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -41,7 +42,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * the owner's PUT can land between the two.  Replacing a public object with
  * a private one there had the read answer with the private object, which no
  * ACL ever made public.  The store here makes that interleaving happen on
- * every read, where the real one needs a race to be won.
+ * every read, where the real one needs a race to be won.  It runs over the
+ * backend s3proxy.test.conf selects, each store judging the object it reads
+ * in its own way.
  */
 public final class AnonymousReadOverwriteRaceTest {
     private static final String KEY = "object";
@@ -80,10 +83,14 @@ public final class AnonymousReadOverwriteRaceTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        backing = TestUtils.createTransientBlobStore();
+        // a store without object ACLs has no such race to lose
+        assumeTrue(!Quirks.NO_BLOB_ACCESS_CONTROL.contains(
+                TestUtils.testBlobStoreProvider()));
+        backing = TestUtils.createTestBlobStore();
         blobStore = new OverwritingBlobStore(backing);
         containerName = TestUtils.createRandomContainerName();
         backing.createContainer(containerName);
+        TestUtils.allowAcls(backing, containerName);
         put(backing, containerName, KEY, PUBLIC_CONTENT,
                 ObjectCannedACL.PUBLIC_READ);
 
@@ -106,6 +113,10 @@ public final class AnonymousReadOverwriteRaceTest {
     public void tearDown() throws Exception {
         if (s3Proxy != null) {
             s3Proxy.stop();
+        }
+        if (backing != null && containerName != null) {
+            backing.removeBlob(containerName, KEY);
+            backing.deleteContainer(containerName);
         }
     }
 
@@ -142,8 +153,11 @@ public final class AnonymousReadOverwriteRaceTest {
 
         HttpResponse<String> head = send("HEAD", "");
         assertThat(head.statusCode()).isEqualTo(200);
-        assertThat(head.headers().firstValue("x-amz-meta-content"))
-                .hasValue(PUBLIC_CONTENT);
+        if (!Quirks.NO_PERSISTED_METADATA.contains(
+                TestUtils.testBlobStoreProvider())) {
+            assertThat(head.headers().firstValue("x-amz-meta-content"))
+                    .hasValue(PUBLIC_CONTENT);
+        }
     }
 
     @Test

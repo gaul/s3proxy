@@ -1079,6 +1079,13 @@ public final class GCloudBlobStore implements BlobStore {
         if (gcsBlob == null) {
             throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
+        // The blob carries its generation, which the reader below opens:
+        // judged on that generation, the ACL is the one of the bytes served.
+        if (SdkRequests.onlyIfPublicRead(request) &&
+                blobAccess(container, key, gcsBlob) !=
+                        ObjectCannedACL.PUBLIC_READ) {
+            throw S3Exceptions.fromStatusCode(403);
+        }
 
         // Enforce conditional-GET preconditions before streaming.  The
         // backends report every conditional-header failure as 412; the
@@ -1798,6 +1805,12 @@ public final class GCloudBlobStore implements BlobStore {
         if (gcsBlob == null) {
             throw S3Exceptions.noSuchKey(container, key, "no such object");
         }
+        // as getBlob does, on the generation whose metadata is reported
+        if (SdkRequests.onlyIfPublicRead(request) &&
+                blobAccess(container, key, gcsBlob) !=
+                        ObjectCannedACL.PUBLIC_READ) {
+            throw S3Exceptions.fromStatusCode(403);
+        }
         return HeadObjectResponse.builder()
                 .metadata(sanitizeUserMetadata(gcsBlob.getMetadata()))
                 .eTag(reportETag(gcsBlob))
@@ -1940,6 +1953,12 @@ public final class GCloudBlobStore implements BlobStore {
         if (blob == null) {
             throw S3Exceptions.noSuchKey(container, key, "");
         }
+        return blobAccess(container, key, blob);
+    }
+
+    /** The access one generation of an object grants. */
+    private ObjectCannedACL blobAccess(String container, String key,
+            Blob blob) {
         try {
             // The blobId carries the generation, so the ACL read is the
             // version's own rather than the live object's.

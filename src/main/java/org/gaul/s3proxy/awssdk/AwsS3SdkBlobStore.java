@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.SdkRequests;
 import org.gaul.s3proxy.blobstore.SdkResponses;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
@@ -138,6 +139,12 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public final class AwsS3SdkBlobStore implements BlobStore {
+    /**
+     * How often a read that may only answer with a public-read object
+     * starts over when the object changed while it was being judged.
+     */
+    private static final int PUBLIC_READ_ATTEMPTS = 3;
+
     private static final String DELETE_MARKER_HEADER = "x-amz-delete-marker";
     private static final String VERSION_ID_HEADER = "x-amz-version-id";
 
@@ -364,6 +371,9 @@ public final class AwsS3SdkBlobStore implements BlobStore {
     @Override
     public ResponseInputStream<GetObjectResponse> getBlob(
             GetObjectRequest request) {
+        if (SdkRequests.onlyIfPublicRead(request)) {
+            return getPublicRead(request);
+        }
         if (request.ifMatch() != null || request.ifNoneMatch() != null) {
             request = request.toBuilder()
                     .ifMatch(maybeStripETagQuotes(request.ifMatch()))
@@ -488,6 +498,115 @@ public final class AwsS3SdkBlobStore implements BlobStore {
 
     @Override
     public HeadObjectResponse blobMetadata(HeadObjectRequest request) {
+        if (SdkRequests.onlyIfPublicRead(request)) {
+            return headPublicRead(request);
+        }
+        return headObject(request);
+    }
+
+    /**
+     * A read marked {@link SdkRequests#ONLY_IF_PUBLIC_READ}.  The service
+     * keeps an object's ACL and its bytes behind two requests, and a write
+     * landing between them would have one object's bytes served on another
+     * object's ACL.  So the object is found first, its own ACL is judged,
+     * and the bytes are read pinned to it: by version id where the bucket
+     * keeps one that no write can reuse, otherwise by ETag, starting over
+     * when the key holds another object by then.
+     */
+    private ResponseInputStream<GetObjectResponse> getPublicRead(
+            GetObjectRequest request) {
+        for (int attempt = 1; ; ++attempt) {
+            HeadObjectResponse head = headObject(HeadObjectRequest.builder()
+                    .bucket(request.bucket())
+                    .key(request.key())
+                    .versionId(request.versionId())
+                    .sseCustomerAlgorithm(request.sseCustomerAlgorithm())
+                    .sseCustomerKey(request.sseCustomerKey())
+                    .sseCustomerKeyMD5(request.sseCustomerKeyMD5())
+                    .build());
+            String versionId = stableVersionId(request.versionId(),
+                    head.versionId());
+            requirePublicRead(request.bucket(), request.key(), versionId);
+            var pinned = request.toBuilder()
+                    .ifMatch(maybeStripETagQuotes(request.ifMatch()))
+                    .ifNoneMatch(maybeStripETagQuotes(request.ifNoneMatch()));
+            if (versionId != null) {
+                pinned.versionId(versionId);
+            } else {
+                String eTag = maybeStripETagQuotes(head.eTag());
+                String ifMatch = maybeStripETagQuotes(request.ifMatch());
+                if (ifMatch != null && !ifMatch.equals(eTag)) {
+                    // the object judged is not the one the client asks for
+                    throw S3Exceptions.preconditionFailed(/*cause=*/ null);
+                }
+                pinned.ifMatch(eTag);
+            }
+            try {
+                return s3Client.getObject(pinned.build());
+            } catch (S3Exception e) {
+                if (versionId == null && e.statusCode() == 412) {
+                    if (attempt < PUBLIC_READ_ATTEMPTS) {
+                        continue;
+                    }
+                    // the client's own condition may be what failed
+                    if (request.ifMatch() != null ||
+                            request.ifUnmodifiedSince() != null) {
+                        throw propagate(e, request.bucket(), request.key());
+                    }
+                    throw S3Exceptions.fromStatusCode(403);
+                }
+                throw propagate(e, request.bucket(), request.key());
+            }
+        }
+    }
+
+    /** As {@link #getPublicRead}, for the metadata alone. */
+    private HeadObjectResponse headPublicRead(HeadObjectRequest request) {
+        for (int attempt = 1; ; ++attempt) {
+            HeadObjectResponse head = headObject(request);
+            String versionId = stableVersionId(request.versionId(),
+                    head.versionId());
+            requirePublicRead(request.bucket(), request.key(), versionId);
+            if (versionId != null) {
+                return head;
+            }
+            try {
+                return s3Client.headObject(request.toBuilder()
+                        .ifMatch(maybeStripETagQuotes(head.eTag()))
+                        .build());
+            } catch (S3Exception e) {
+                if (e.statusCode() != 412) {
+                    throw e;
+                }
+                if (attempt == PUBLIC_READ_ATTEMPTS) {
+                    throw S3Exceptions.fromStatusCode(403);
+                }
+            }
+        }
+    }
+
+    /**
+     * The version id that names one object for good: the one asked for or
+     * found, but not "null", which a later write while versioning is
+     * suspended replaces in place.
+     */
+    @Nullable
+    private static String stableVersionId(@Nullable String requested,
+            @Nullable String found) {
+        String versionId = requested != null ? requested : found;
+        return versionId == null || versionId.equals("null") ? null :
+                versionId;
+    }
+
+    private void requirePublicRead(String container, String key,
+            @Nullable String versionId) {
+        if (getBlobAccess(container, key, versionId) !=
+                ObjectCannedACL.PUBLIC_READ) {
+            throw S3Exceptions.fromStatusCode(403);
+        }
+    }
+
+    private HeadObjectResponse headObject(HeadObjectRequest request) {
         try {
             return s3Client.headObject(request);
         } catch (S3Exception e) {
