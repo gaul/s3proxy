@@ -37,4 +37,31 @@ public final class S3ProxyMetricsTest {
             metrics.close();
         }
     }
+
+    /**
+     * Unauthenticated requests are recorded too and every distinct label set
+     * is kept, so the method and the scheme may not be whatever the client
+     * wrote.
+     */
+    @Test
+    public void testMethodAndSchemeAreNotTheClientsWords() throws Exception {
+        var metrics = new S3ProxyMetrics();
+        try {
+            metrics.recordRequest("CHOSEN-METHOD", "chosen-scheme", 501,
+                    S3Operation.UNKNOWN, "bucket", 1_500_000L,
+                    /*requestBytes=*/ 0, /*responseBytes=*/ 0);
+            metrics.recordRequest("PUT", "https", 200, S3Operation.PUT_OBJECT,
+                    "bucket", 1_500_000L,
+                    /*requestBytes=*/ 0, /*responseBytes=*/ 0);
+            String body = metrics.scrape();
+            assertThat(body).contains("http_request_method=\"_OTHER\"");
+            assertThat(body).contains("url_scheme=\"http\"");
+            assertThat(body).doesNotContain("CHOSEN-METHOD");
+            assertThat(body).doesNotContain("chosen-scheme");
+            assertThat(body).contains("http_request_method=\"PUT\"");
+            assertThat(body).contains("url_scheme=\"https\"");
+        } finally {
+            metrics.close();
+        }
+    }
 }

@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -46,6 +47,18 @@ public final class S3ProxyMetrics {
     private static final List<Double> DURATION_BUCKETS = List.of(
             0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5,
             0.75, 1.0, 2.5, 5.0, 7.5, 10.0);
+    // OTel semantic conventions limit http.request.method to these values;
+    // any other method is recorded as _OTHER.
+    private static final Set<String> KNOWN_METHODS = Set.of(
+            HttpAttributes.HttpRequestMethodValues.CONNECT,
+            HttpAttributes.HttpRequestMethodValues.DELETE,
+            HttpAttributes.HttpRequestMethodValues.GET,
+            HttpAttributes.HttpRequestMethodValues.HEAD,
+            HttpAttributes.HttpRequestMethodValues.OPTIONS,
+            HttpAttributes.HttpRequestMethodValues.PATCH,
+            HttpAttributes.HttpRequestMethodValues.POST,
+            HttpAttributes.HttpRequestMethodValues.PUT,
+            HttpAttributes.HttpRequestMethodValues.TRACE);
 
     /**
      * Body sizes run from a few bytes of XML to objects of gigabytes, which
@@ -113,9 +126,18 @@ public final class S3ProxyMetrics {
 
         double durationSeconds = durationNanos / 1_000_000_000.0;
 
+        // Every distinct attribute set is kept until the process exits and
+        // is repeated on each line of every scrape, and requests are recorded
+        // whether or not they were authenticated.  Thus neither attribute
+        // may hold what the client wrote: the method can be any token, and
+        // the scheme is the client's when the request line is in absolute
+        // form.
         AttributesBuilder builder = Attributes.builder()
-                .put(HttpAttributes.HTTP_REQUEST_METHOD, method)
-                .put(UrlAttributes.URL_SCHEME, scheme)
+                .put(HttpAttributes.HTTP_REQUEST_METHOD,
+                        KNOWN_METHODS.contains(method) ? method :
+                                HttpAttributes.HttpRequestMethodValues.OTHER)
+                .put(UrlAttributes.URL_SCHEME,
+                        "https".equalsIgnoreCase(scheme) ? "https" : "http")
                 .put(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, statusCode)
                 .put(S3_OPERATION, operation.getValue());
 

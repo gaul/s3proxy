@@ -18,14 +18,20 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 
+import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.BucketCannedACL;
 
 public final class S3ProxyMetricsEndpointTest {
     // Prometheus text exposition marker in the metrics Content-Type; absent
@@ -158,5 +164,47 @@ public final class S3ProxyMetricsEndpointTest {
                 .orElseThrow(() -> new AssertionError(
                         "no " + name + " for " + operation + " in:\n" +
                         metrics));
+    }
+
+    /**
+     * A raw socket, since HttpClient will not send a request line in
+     * absolute form, whose scheme Jetty reports as the request's.
+     */
+    @Test
+    public void testUnauthenticatedRequestDoesNotChooseLabels()
+            throws Exception {
+        s3Proxy = baseBuilder()
+                .awsAuthentication(AuthenticationType.AWS_V2_OR_V4,
+                        "local-identity", "local-credential")
+                .metricsEnabled(true)
+                .build();
+        s3Proxy.start();
+        blobStore.createContainer("public-bucket");
+        blobStore.setContainerAccess("public-bucket",
+                BucketCannedACL.PUBLIC_READ);
+
+        String response;
+        try (var socket = new Socket(InetAddress.getLoopbackAddress(),
+                s3Proxy.getPort())) {
+            socket.getOutputStream().write(("DELETE chosen-scheme:" +
+                    "//127.0.0.1/chosen-bucket/key HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1\r\n" +
+                    "Connection: close\r\n\r\n").getBytes(
+                            StandardCharsets.US_ASCII));
+            response = new String(socket.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+        }
+        assertThat(response).startsWith("HTTP/1.1 404 ");
+        // An anonymous request that is let through does name its bucket.
+        assertThat(get("http://127.0.0.1:" + s3Proxy.getPort() +
+                "/public-bucket").statusCode()).isEqualTo(200);
+
+        String metrics = get("http://127.0.0.1:" + s3Proxy.getPort() +
+                "/metrics").body();
+        assertThat(metrics).contains("s3_operation=\"DeleteObject\"");
+        assertThat(metrics).contains("url_scheme=\"http\"");
+        assertThat(metrics).doesNotContain("chosen-scheme");
+        assertThat(metrics).doesNotContain("chosen-bucket");
+        assertThat(metrics).contains("s3_bucket=\"public-bucket\"");
     }
 }

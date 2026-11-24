@@ -941,6 +941,17 @@ public class S3ProxyHandler {
             doHandleAnonymous(request, response, is, uri, path,
                     anonymousGrant != null ? anonymousGrant.blobStore() :
                             defaultBlobStore, ctx);
+            // The bucket becomes a metrics label only now, and only if the
+            // request was not refused, be it by an exception or, as
+            // handlePostBlob does, by a status alone.  Until then it is a
+            // name that a client without credentials chose and that need
+            // not exist, and every distinct label is kept for the life of
+            // the process.
+            if (ctx != null && path.length > 1 && !path[1].isEmpty() &&
+                    response.getStatus() <
+                            HttpServletResponse.SC_BAD_REQUEST) {
+                ctx.setBucket(path[1]);
+            }
             return;
         }
 
@@ -2264,10 +2275,6 @@ public class S3ProxyHandler {
         // authenticated one gets to, and a body left in its aws-chunked
         // frames is stored with the frames in it.
         is = maybeDecodeChunked(request, is);
-
-        if (ctx != null && path.length > 1 && !path[1].isEmpty()) {
-            ctx.setBucket(path[1]);
-        }
 
         // The authenticated path refuses a name no bucket can have rather
         // than asking a backend about it, and so does this one: the two
