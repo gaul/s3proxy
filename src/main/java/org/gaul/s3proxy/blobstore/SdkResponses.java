@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy.blobstore;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -97,11 +98,19 @@ public final class SdkResponses {
                 .build();
     }
 
-    /** A GET result: the response riding on its payload stream. */
+    /**
+     * A GET result: the response riding on its payload stream.  The stream
+     * is built without the SDK's timeout, which by default aborts one that
+     * nobody read within 60 seconds: the SDK's scheduler holds the stream
+     * and its response until then, and while a read cancels that, close
+     * does not.  A read that is refused and closed unread would stay on the
+     * heap for the minute, and there is no SDK connection here for the
+     * timeout to guard.
+     */
     public static ResponseInputStream<GetObjectResponse> getResponse(
             GetObjectResponse response, java.io.InputStream stream) {
         return new ResponseInputStream<>(response,
-                AbortableInputStream.create(stream));
+                AbortableInputStream.create(stream), Duration.ZERO);
     }
 
     /**
