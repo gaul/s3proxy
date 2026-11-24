@@ -49,6 +49,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -170,6 +171,11 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * catalog.  Empty selects the first/default region.
      */
     public static final String PROPERTY_REGION = "openstack-swift-sdk.region";
+
+    // Names asked of Swift at a time by the listings of the multipart
+    // namespace.  Swift's own page is 10,000 names, more than a listing
+    // that keeps few of them should hold for each request.
+    static final int LIST_PAGE_SIZE = 1000;
 
     private static final long EXPIRY_MARGIN_MILLIS = 60_000L;
     // How long a tempauth token is assumed good for when the response does
@@ -697,14 +703,25 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      * a bucket holding more segments than that listed no upload past them.
      */
     private List<SwiftObject> listAll(String container, String prefix) {
+        return listAll(container, prefix, name -> true);
+    }
+
+    /**
+     * As {@link #listAll(String, String)}, of the objects whose name
+     * {@code keep} accepts.  The others are passed over a page at a time, so
+     * a listing read for a few of its names holds those and one page.
+     */
+    private List<SwiftObject> listAll(String container, String prefix,
+            Predicate<String> keep) {
         var swift = objectStorage();
         return allPages(marker -> {
-            var options = ObjectListOptions.create().startsWith(prefix);
+            var options = ObjectListOptions.create().startsWith(prefix)
+                    .limit(LIST_PAGE_SIZE);
             if (marker != null) {
                 options.marker(marker);
             }
             return swift.objects().list(container, options);
-        }, SwiftObject::getName);
+        }, SwiftObject::getName, keep);
     }
 
     /**
@@ -717,6 +734,16 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     static <T> List<T> allPages(
             Function<@Nullable String, List<? extends T>> fetch,
             Function<T, @Nullable String> nameOf) {
+        return allPages(fetch, nameOf, name -> true);
+    }
+
+    /**
+     * As {@link #allPages(Function, Function)}, keeping only the entries
+     * whose name {@code keep} accepts.
+     */
+    static <T> List<T> allPages(
+            Function<@Nullable String, List<? extends T>> fetch,
+            Function<T, @Nullable String> nameOf, Predicate<String> keep) {
         var all = new ArrayList<T>();
         String marker = null;
         while (true) {
@@ -727,7 +754,9 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
                         (before != null && name.compareTo(before) <= 0)) {
                     continue;
                 }
-                all.add(entry);
+                if (keep.test(name)) {
+                    all.add(entry);
+                }
                 marker = name;
             }
             if (Objects.equals(marker, before)) {
@@ -1935,9 +1964,14 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     @Override
     public List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container) {
+        // Only the markers are kept.  They lie among the segments, those of
+        // finished objects included, and a list of all those names held one
+        // for every part in the bucket, on a request that a public-read
+        // bucket answers unsigned.
         List<? extends SwiftObject> objects;
         try {
-            objects = listAll(container, MPU_PREFIX);
+            objects = listAll(container, MPU_PREFIX,
+                    name -> name.endsWith(MPU_META_SUFFIX));
         } catch (ResponseException re) {
             throw translate(re, container, /*key=*/ null);
         }

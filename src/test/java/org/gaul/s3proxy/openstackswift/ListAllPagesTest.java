@@ -70,6 +70,16 @@ public final class ListAllPagesTest {
                 marker -> List.of(), name -> name)).isEmpty();
     }
 
+    /** Names not kept still move the marker, or the listing would end. */
+    @Test
+    public void testKeepsOnlyAcceptedNames() {
+        var asked = new ArrayList<String>();
+        assertThat(OpenStackSwiftBlobStore.<String>allPages(
+                paged(3, asked), name -> name, name -> name.equals("g")))
+                .containsExactly("g");
+        assertThat(asked).containsExactly(null, "c", "f", "g");
+    }
+
     /** A backend that ignores the marker must not loop or repeat names. */
     @Test
     public void testBackendIgnoringMarkers() {
