@@ -303,6 +303,12 @@ public class S3ProxyHandler {
     /** A SHA-256 as x-amz-content-sha256 spells it. */
     private static final Pattern SHA256_HEX = Pattern.compile(
             "[0-9a-fA-F]{64}");
+    /**
+     * The most parts a form POST may have and the most bytes of headers each
+     * may carry; what Jetty's own MultiPartConfig defaults to.
+     */
+    private static final int MAX_POST_PARTS = 100;
+    private static final int MAX_POST_PART_HEADERS_LENGTH = 8 * 1024;
     /** An S3 composite ETag: the parts' MD5s hashed, then the part count. */
     private static final Pattern COMPOSITE_ETAG = Pattern.compile(
             "[0-9a-fA-F]{32}-([0-9]+)");
@@ -6336,6 +6342,16 @@ public class S3ProxyHandler {
         // for every form upload.
         parser.setMaxLength(v4MaxNonChunkedRequestSize);
         parser.setMaxMemoryFileSize(v4MaxNonChunkedRequestSize);
+        // Neither of those bounds what the headers of a part cost.  Jetty
+        // keeps each header as objects many times the size of its bytes and
+        // does not limit the headers of a part unless asked, so a body of
+        // nothing but short headers held twenty times the bound on it.  A
+        // form field carries Content-Disposition and perhaps Content-Type.
+        // Bound the parts too: a bound on the headers of each bounds the
+        // form only as tightly as the number of them, and Jetty's default
+        // of 1000 parts would still admit 8 MB of such headers.
+        parser.setPartHeadersMaxLength(MAX_POST_PART_HEADERS_LENGTH);
+        parser.setMaxParts(MAX_POST_PARTS);
         var futureParts = new CompletableFuture<MultiPartFormData.Parts>();
         parser.parse(new InputStreamContentSource(is,
                 ByteBufferPool.SIZED_NON_POOLING),

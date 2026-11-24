@@ -478,6 +478,55 @@ public final class PostObjectTest {
                 .contains("<Code>MaxMessageLengthExceeded</Code>");
     }
 
+    /**
+     * A part's headers are bounded apart from the body they arrive in.  The
+     * parser holds each one as objects many times its size, so a form well
+     * inside the body bound could otherwise hold many times that bound.
+     */
+    @Test
+    public void testOversizedPartHeadersAreRefused() throws Exception {
+        String body = "--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
+                " name=\"key\"\r\n" + "aa:bb\r\n".repeat(2000) +
+                "\r\nfoo.txt\r\n--" + BOUNDARY + "--\r\n";
+        // The headers are what is refused, not the form they arrive in.
+        assertThat(body.length()).isLessThan(MAX_REQUEST_SIZE);
+
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri))
+                        .header("Content-Type",
+                                "multipart/form-data; boundary=" + BOUNDARY)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>MaxMessageLengthExceeded</Code>");
+    }
+
+    /**
+     * ... and so is the number of parts, since a bound on the headers of each
+     * bounds the form only as tightly as the number of them.
+     */
+    @Test
+    public void testTooManyPartsAreRefused() throws Exception {
+        var fields = new ArrayList<String>(List.of("key", "foo.txt"));
+        for (int i = 0; i < 98; i++) {
+            fields.add("x-amz-meta-" + i);
+            fields.add("");
+        }
+        // With the file part this is as many as a form may have, and it gets
+        // as far as being refused for carrying no credential.
+        HttpResponse<String> response = postUnsigned(
+                fields.toArray(new String[0]));
+        assertThat(response.statusCode()).isEqualTo(403);
+
+        fields.add("x-amz-meta-98");
+        fields.add("");
+        response = postUnsigned(fields.toArray(new String[0]));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>MaxMessageLengthExceeded</Code>");
+    }
+
     /** A body the parser cannot finish is a bad request, not a 500. */
     @Test
     public void testMalformedPostIsRefused() throws Exception {
