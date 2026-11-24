@@ -137,9 +137,9 @@ public final class Nio2BookkeepingAccessTest {
     private List<Set<PosixFilePermission>> permissions(String directory)
             throws IOException {
         var permissions = new ArrayList<Set<PosixFilePermission>>();
-        try (var stream = Files.newDirectoryStream(
-                containerPath.resolve(directory))) {
-            for (var path : stream) {
+        // the files below it: versions are kept in a directory per key
+        try (var stream = Files.walk(containerPath.resolve(directory))) {
+            for (var path : stream.filter(Files::isRegularFile).toList()) {
                 permissions.add(Files.getPosixFilePermissions(path));
             }
         }

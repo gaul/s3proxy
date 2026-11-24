@@ -746,6 +746,55 @@ public final class VersionedBlobStoreTest {
     }
 
     /**
+     * The versions are what keeps it, not where a store puts them: with the
+     * last one gone the bucket goes, whether a version left by being
+     * deleted or by becoming the current one again.
+     */
+    @Test
+    public void testBucketIsDeletedOnceItsVersionsAreGone() {
+        enableVersioning();
+        String first = put("blob", FIRST);
+        String second = put("blob", SECOND);
+        String marker = client.deleteObject(
+                b -> b.bucket(containerName).key("blob")).versionId();
+        String other = put("dir/other", FIRST);
+        String otherMarker = client.deleteObject(
+                b -> b.bucket(containerName).key("dir/other")).versionId();
+
+        for (String versionId : List.of(marker, first, second)) {
+            client.deleteObject(b -> b.bucket(containerName).key("blob")
+                    .versionId(versionId));
+        }
+        for (String versionId : List.of(otherMarker, other)) {
+            client.deleteObject(b -> b.bucket(containerName).key("dir/other")
+                    .versionId(versionId));
+        }
+
+        client.deleteBucket(b -> b.bucket(containerName));
+        assertThat(blobStore.containerExists(containerName)).isFalse();
+        // tearDown deletes once more, which must stay a quiet no-op.
+    }
+
+    /**
+     * Nor does a null delete marker keep it once a suspended write has
+     * taken its place as the key's one null version.
+     */
+    @Test
+    public void testBucketIsDeletedOnceItsNullMarkerIsReplaced() {
+        enableVersioning();
+        suspendVersioning();
+        put("blob", FIRST);
+        client.deleteObject(b -> b.bucket(containerName).key("blob"));
+        put("blob", SECOND);
+        client.deleteObject(b -> b.bucket(containerName).key("blob")
+                .versionId("null"));
+
+        client.deleteBucket(b -> b.bucket(containerName));
+        assertThat(blobStore.containerExists(containerName)).isFalse();
+        // tearDown deletes once more, which must stay a quiet no-op.
+    }
+
+    /**
      * The internal {@code deleteContainer} -- test teardown and the JUnit
      * rule -- removes that same bucket whole, archived versions and
      * markers included; a store that only deleted the current objects

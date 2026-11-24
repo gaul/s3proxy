@@ -1586,6 +1586,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         // would list it twice.
                         if (linked != null) {
                             Files.deleteIfExists(linked);
+                            removeEmptyParentDirectories(containerPath,
+                                    linked.getParent());
                         }
                         throw e;
                     }
@@ -2136,6 +2138,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                                 " one.");
                     }
                     Files.delete(version.path());
+                    removeEmptyParentDirectories(containerPath,
+                            version.path().getParent());
                     // The version removed may have been the one standing for
                     // the key -- a delete marker on top of older versions --
                     // in which case the next one down becomes current.
@@ -4302,11 +4306,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     // Versioning.  The current version of a key is the ordinary file at its
     // natural path, carrying its version id in an xattr; every other version
     // and every delete marker is a file under VERSIONS_DIR named
-    // "<hash of key>-<sequence>", carrying the key it belongs to in an xattr
+    // "<hash of key>/<sequence>", carrying the key it belongs to in an xattr
     // of its own.  Keeping the current version where it always was is what
     // lets reads, listings, multipart assembly and the ACL paths stay
-    // oblivious to versioning; the flat sidecar keeps a version file from
-    // ever colliding with an object whose key happens to look like one.
+    // oblivious to versioning; the sidecar keeps a version file from ever
+    // colliding with an object whose key happens to look like one.  Each
+    // key has a directory of its own there because a read of a key that has
+    // no current object looks for that key's versions, before the caller is
+    // even authorized, and must not enumerate every other key's to do so.
     //
     // The invariant the rest of this relies on: when the natural path holds
     // the key's object that is the newest version, and when it does not,
@@ -4370,7 +4377,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     }
 
     /**
-     * Groups a key's versions under one file-name prefix without letting the
+     * Groups a key's versions under one directory without letting the
      * key's own characters -- slashes above all -- shape the layout.
      */
     private static String keyHash(String key) {
@@ -4401,10 +4408,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (hasCurrentVersion(path, key)) {
                 return new ResolvedVersion(path, currentVersionId(path));
             }
-            var archived = archivedVersions(containerPath, key);
-            if (!archived.isEmpty() && archived.get(0).deleteMarker()) {
+            // Only the newest version says whether the key is gone or
+            // behind a delete marker, and this is asked before a read is
+            // authorized: reading every version of a key written thousands
+            // of times was the cost of an anonymous GET answered 403.
+            var newest = newestArchivedVersion(containerPath, key);
+            if (newest != null && newest.deleteMarker()) {
                 throw S3Exceptions.noSuchKeyDeleteMarker(container, key,
-                        archived.get(0).versionId(),
+                        newest.versionId(),
                         "current version is a delete marker");
             }
             return null;
@@ -4497,18 +4508,89 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private List<StoredVersion> archivedVersions(Path containerPath,
             @Nullable String key) {
         var dir = versionsDir(containerPath);
-        var prefix = key == null ? null : keyHash(key) + "-";
         var versions = new ArrayList<StoredVersion>();
+        try {
+            if (key != null) {
+                addArchivedVersions(dir.resolve(keyHash(key)), key, versions);
+            } else {
+                try (var stream = openDirectoryStreamIfPresent(dir)) {
+                    if (stream != null) {
+                        for (var keyDir : stream) {
+                            addArchivedVersions(keyDir, /*key=*/ null,
+                                    versions);
+                        }
+                    }
+                } catch (DirectoryIteratorException die) {
+                    // The directory vanished mid-iteration: its remaining
+                    // entries went with it.
+                    var cause = requireNonNull(die.getCause());
+                    if (!vanished(cause, dir)) {
+                        throw cause;
+                    }
+                }
+            }
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+        // The sequence in the name orders them; it is monotonic where the
+        // version id and the timestamp are not.
+        versions.sort(Comparator.comparing(
+                (StoredVersion version) ->
+                        requireNonNull(version.path().getFileName()).toString()).reversed());
+        return versions;
+    }
+
+    /**
+     * The newest version of {@code key} kept outside its natural path, or
+     * null.  The sequence a version's file is named by orders them, so the
+     * newest is found from the names alone and only its file is read; where
+     * that file is gone by then, or belongs to another key sharing the
+     * directory's hash, every version of the key is read instead.
+     */
+    @Nullable
+    private StoredVersion newestArchivedVersion(Path containerPath,
+            String key) {
+        var dir = versionsDir(containerPath).resolve(keyHash(key));
+        Path newest = null;
         try (var stream = openDirectoryStreamIfPresent(dir)) {
             if (stream == null) {
-                return versions;
+                return null;
+            }
+            for (var path : stream) {
+                if (newest == null || requireNonNull(path.getFileName())
+                        .toString().compareTo(requireNonNull(
+                                newest.getFileName()).toString()) > 0) {
+                    newest = path;
+                }
+            }
+        } catch (IOException | DirectoryIteratorException e) {
+            newest = null;
+        }
+        if (newest != null) {
+            try {
+                var version = storedVersion(newest, key);
+                if (version != null) {
+                    return version;
+                }
+            } catch (IOException ioe) {
+                if (!vanished(ioe, newest)) {
+                    throw new RuntimeException(ioe);
+                }
+            }
+        }
+        var versions = archivedVersions(containerPath, key);
+        return versions.isEmpty() ? null : versions.get(0);
+    }
+
+    /** Adds the versions held in the directory of one key. */
+    private static void addArchivedVersions(Path dir, @Nullable String key,
+            List<StoredVersion> versions) throws IOException {
+        try (var stream = openDirectoryStreamIfPresent(dir)) {
+            if (stream == null) {
+                return;
             }
             try {
                 for (var path : stream) {
-                    var name = requireNonNull(path.getFileName()).toString();
-                    if (prefix != null && !name.startsWith(prefix)) {
-                        continue;
-                    }
                     try {
                         var version = storedVersion(path, key);
                         if (version != null) {
@@ -4531,15 +4613,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     throw cause;
                 }
             }
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
         }
-        // The sequence in the name orders them; it is monotonic where the
-        // version id and the timestamp are not.
-        versions.sort(Comparator.comparing(
-                (StoredVersion version) ->
-                        requireNonNull(version.path().getFileName()).toString()).reversed());
-        return versions;
     }
 
     /**
@@ -4571,10 +4645,15 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 Instant.ofEpochMilli(attr.lastModifiedTime().toMillis()));
     }
 
-    /** Where the next version of {@code key} goes. */
+    /**
+     * Where the next version of {@code key} goes.  Whatever takes a version
+     * away again removes its key's directory along with the last of them,
+     * since deleteBucket takes anything VERSIONS_DIR still holds for a
+     * version that keeps the bucket.
+     */
     private static Path newVersionPath(Path containerPath, String key) {
-        return versionsDir(containerPath).resolve("%s-%016d".formatted(
-                keyHash(key), VERSION_SEQUENCE.incrementAndGet()));
+        return versionsDir(containerPath).resolve(keyHash(key)).resolve(
+                "%016d".formatted(VERSION_SEQUENCE.incrementAndGet()));
     }
 
     private static void writeVersionAttributes(Path path, String key,
@@ -4613,6 +4692,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             for (var version : archivedVersions(containerPath, key)) {
                 if (NULL_VERSION_ID.equals(version.versionId())) {
                     Files.deleteIfExists(version.path());
+                    removeEmptyParentDirectories(containerPath,
+                            version.path().getParent());
                 }
             }
         }
@@ -4661,16 +4742,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      */
     private void promoteNewestVersion(Path containerPath, Path path,
             String key) throws IOException {
-        var versions = archivedVersions(containerPath, key);
-        if (versions.isEmpty()) {
-            return;
-        }
-        var newest = versions.get(0);
-        if (newest.deleteMarker()) {
+        var newest = newestArchivedVersion(containerPath, key);
+        if (newest == null || newest.deleteMarker()) {
             return;
         }
         Files.createDirectories(requireNonNull(path.getParent()));
         publish(newest.path(), path, StandardCopyOption.ATOMIC_MOVE);
+        removeEmptyParentDirectories(containerPath,
+                newest.path().getParent());
     }
 
     /**
