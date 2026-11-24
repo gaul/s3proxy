@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -76,6 +77,7 @@ import com.google.common.base.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -1339,12 +1341,39 @@ public final class GCloudBlobStore implements BlobStore {
             }
             payload = new SequenceInputStream(
                     new ByteArrayInputStream(head), payload);
+        } else {
+            // A large payload is received up to a chunk before the session
+            // is opened, whose buffers it would otherwise fill from nothing.
+            payload = receiveFirstChunk(payload, chunkSize);
         }
         var session = storage.blobWriteSession(blobInfo, options);
         var channel = session.open();
         payload.transferTo(Channels.newOutputStream(channel));
         channel.close();
         return Futures.getUnchecked(session.getResult());
+    }
+
+    /**
+     * Receives the first chunk of a payload before the SDK is handed it.
+     * The chunk is sized by the Content-Length the client declares, not by
+     * what it goes on to send, and Storage.createFrom allocates it twice in
+     * full by the first byte it reads: a request that declared 16 MB, sent
+     * one byte and stalled held 30 MiB for as long as it stayed, and a few
+     * dozen of them held the heap.  Reading ahead grows with the bytes that
+     * have arrived, so the SDK allocates its buffers only once there is a
+     * chunk, or the whole of a shorter payload, to fill them with.
+     */
+    private static InputStream receiveFirstChunk(InputStream is,
+            int chunkSize) throws IOException {
+        var streams = new ArrayDeque<InputStream>(2);
+        streams.add(new ByteArrayInputStream(is.readNBytes(chunkSize)));
+        streams.add(is);
+        // Consumed, so that the chunk is let go of once the SDK has read it.
+        // SequenceInputStream keeps the two streams it is constructed with
+        // for as long as it lives, which would hold the chunk a third time,
+        // beside the SDK's two buffers, until the upload ends.
+        return new SequenceInputStream(Iterators.asEnumeration(
+                Iterators.consumingIterator(streams.iterator())));
     }
 
     @Override
