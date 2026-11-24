@@ -47,6 +47,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -238,6 +239,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     // Cached Keystone token; a fresh thread-bound client is derived from it
     // per request via OSFactory.clientFromToken().
     @Nullable private volatile Token token;
+    private final ReentrantLock authenticateLock = new ReentrantLock();
 
     public OpenStackSwiftBlobStore(Supplier<Credentials> creds, String endpoint,
             String projectName, String projectDomainName,
@@ -262,15 +264,23 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         return client.objectStorage();
     }
 
-    private synchronized Token authenticate() {
-        Token current = token;
-        if (current != null && !isExpiringSoon(current)) {
-            return current;
+    private Token authenticate() {
+        // A lock rather than a monitor: authentication is a round trip,
+        // and before Java 24 a virtual thread holding or awaiting a monitor
+        // pins its carrier for all of it.
+        authenticateLock.lock();
+        try {
+            Token current = token;
+            if (current != null && !isExpiringSoon(current)) {
+                return current;
+            }
+            var cred = creds.get();
+            token = isTempAuthEndpoint(endpoint) ?
+                    authenticateTempAuth(cred) : authenticateKeystone(cred);
+            return token;
+        } finally {
+            authenticateLock.unlock();
         }
-        var cred = creds.get();
-        token = isTempAuthEndpoint(endpoint) ? authenticateTempAuth(cred) :
-                authenticateKeystone(cred);
-        return token;
     }
 
     private Token authenticateKeystone(Credentials cred) {

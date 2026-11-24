@@ -297,8 +297,13 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      * is acted on through the path after looking what is there.  Without the
      * lock the object "key" published in between is given the directory
      * marker's ETag, metadata and customer key, or is deleted in its place.
+     *
+     * <p>A lock rather than a monitor, since requests may run on virtual
+     * threads and this is held across file I/O: before Java 24 a virtual
+     * thread pins its carrier while it holds or waits for a monitor, and
+     * enough of them waiting here would leave none to run its holder.
      */
-    private final Object versionLock = new Object();
+    private final ReentrantLock versionLock = new ReentrantLock();
     /**
      * Keeps a key naming one file for as long as a read takes to look at
      * it.  A read asks the path for the file's attributes and then opens
@@ -1219,7 +1224,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // "key" published once the directory was made or found would
             // otherwise be given this marker's ETag, metadata and customer
             // key.
-            synchronized (versionLock) {
+            versionLock.lock();
+            try {
                 // the conditions a write to any other key is held to
                 if (ifNoneMatch != null && Files.isDirectory(path) &&
                         safeGetXattrs(path).attributes().contains(
@@ -1275,6 +1281,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         }
                     }
                 }
+            } finally {
+                versionLock.unlock();
             }
 
             // A directory marker is the directory itself, which the versions
@@ -1435,9 +1443,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // already written to tmpPath carry over.
                 publishLock.writeLock().lock();
                 try {
-                    synchronized (versionLock) {
+                    versionLock.lock();
+                    try {
                         intoParent(tmpPath, path,
                                 () -> Files.createLink(path, tmpPath));
+                    } finally {
+                        versionLock.unlock();
                     }
                 } catch (FileAlreadyExistsException faee) {
                     throw returnResponseException(412);
@@ -1447,9 +1458,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                     if (Files.exists(path)) {
                         throw returnResponseException(412);
                     }
-                    synchronized (versionLock) {
+                    versionLock.lock();
+                    try {
                         intoParent(tmpPath, path, () -> Files.move(tmpPath,
                                 path, StandardCopyOption.ATOMIC_MOVE));
+                    } finally {
+                        versionLock.unlock();
                     }
                 } finally {
                     publishLock.writeLock().unlock();
@@ -1460,13 +1474,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // versioning is suspended -- and a write minting the null
                 // id replaces that one, as every other write here does.
                 if (NULL_VERSION_ID.equals(versionId)) {
-                    synchronized (versionLock) {
+                    versionLock.lock();
+                    try {
                         for (var version : archivedVersions(containerPath,
                                 blob.getMetadata().name())) {
                             if (NULL_VERSION_ID.equals(version.versionId())) {
                                 Files.deleteIfExists(version.path());
                             }
                         }
+                    } finally {
+                        versionLock.unlock();
                     }
                 }
                 published = true;
@@ -1486,7 +1503,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             }
 
             if (versionId != null) {
-                synchronized (versionLock) {
+                versionLock.lock();
+                try {
                     Path linked = archiveCurrentVersion(containerPath, path,
                             blob.getMetadata().name(), versionId,
                             /*replacing=*/ true);
@@ -1502,6 +1520,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         }
                         throw e;
                     }
+                } finally {
+                    versionLock.unlock();
                 }
                 published = true;
                 return new PutResult(storedETag, versionId);
@@ -1559,9 +1579,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             // prefixes over no keys and keep the bucket from being deleted.
             if (!published) {
                 try {
-                    synchronized (versionLock) {
+                    versionLock.lock();
+                    try {
                         removeEmptyParentDirectories(containerPath,
                                 path.getParent());
+                    } finally {
+                        versionLock.unlock();
                     }
                 } catch (IOException ioe) {
                     logger.debug("unable to remove parents of {}", path, ioe);
@@ -1662,13 +1685,16 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             throws IOException {
         // versionLock first, as the versioned publish takes it: no read
         // holding the shared side of publishLock ever waits on versionLock
-        synchronized (versionLock) {
+        versionLock.lock();
+        try {
             publishLock.writeLock().lock();
             try {
                 Files.move(source, target, options);
             } finally {
                 publishLock.writeLock().unlock();
             }
+        } finally {
+            versionLock.unlock();
         }
     }
 
@@ -1958,7 +1984,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // Versioned: the data stays and a marker goes on top of it.
         var markerId = mintVersionId(status);
         try {
-            synchronized (versionLock) {
+            versionLock.lock();
+            try {
                 if (Files.isDirectory(path)) {
                     // Without the slash the directory is no object, and
                     // there is nothing to delete.  Looked at under the lock:
@@ -1981,6 +2008,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                         /*deleteMarker=*/ true);
                 Files.setLastModifiedTime(marker,
                         FileTime.from(mintTime()));
+            } finally {
+                versionLock.unlock();
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -1998,7 +2027,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
     private DeleteObjectResponse removeVersion(String container,
             Path containerPath, Path path, String key, String versionId) {
         try {
-            synchronized (versionLock) {
+            versionLock.lock();
+            try {
                 if (hasCurrentVersion(path, key) &&
                         currentVersionId(path).equals(versionId)) {
                     // Removing an object at its natural path is what the
@@ -2055,6 +2085,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                             .deleteMarker(version.deleteMarker() ? true : null)
                             .build();
                 }
+            } finally {
+                versionLock.unlock();
             }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
@@ -2077,7 +2109,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // The path is looked at and then deleted, and "key" and "key/" share
         // it: under the lock that publishing holds, so that the one is not
         // published between the two and deleted for the other.
-        synchronized (versionLock) {
+        versionLock.lock();
+        try {
             if (!key.endsWith("/") && Files.isDirectory(path)) {
                 // POSIX path normalization conflates "key" with "key/";
                 // a non-slash key must not match a directory marker.
@@ -2106,6 +2139,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 }
                 throw new RuntimeException(ioe);
             }
+        } finally {
+            versionLock.unlock();
         }
     }
 
@@ -2730,9 +2765,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         }
         // As setBlobAccess: the answer is for the version that was asked
         // after, not for one published over it since.
-        synchronized (versionLock) {
+        versionLock.lock();
+        try {
             return currentBlobAccess(container, containerPath, key,
                     versionId);
+        } finally {
+            versionLock.unlock();
         }
     }
 
@@ -2800,9 +2838,12 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // file, versionLock keeps the two the same file; without it the
         // access asked for one version lands on the next, and public-read on
         // a version stored private.
-        synchronized (versionLock) {
+        versionLock.lock();
+        try {
             setBlobAccessHelper(
                     aclPath(container, containerPath, key, versionId), access);
+        } finally {
+            versionLock.unlock();
         }
     }
 
@@ -2858,7 +2899,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         // so holding it from the ETag check to the attribute write keeps
         // them on one object.  Without it a write landing in between was
         // labelled with this checksum, for bytes it does not describe.
-        synchronized (versionLock) {
+        versionLock.lock();
+        try {
             var containerPath = requireContainerPath(container);
             Path path;
             try {
@@ -2884,6 +2926,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 logger.debug("xattrs not supported on {}", path);
                 return false;
             }
+        } finally {
+            versionLock.unlock();
         }
     }
 
