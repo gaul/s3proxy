@@ -78,6 +78,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
@@ -1236,6 +1237,32 @@ public final class GCloudBlobStore implements BlobStore {
      * the copy made here and the two createFrom makes fit in one full chunk.
      */
     private BlobInfo upload(BlobInfo blobInfo, InputStream payload,
+            @Nullable Long contentLength, BlobWriteOption... options)
+            throws IOException {
+        // A failure leaves without the SDK's account of the request (see
+        // withoutRequest), however the SDK reports it: the request that
+        // finalizes the upload throws a StorageException, an earlier chunk
+        // an IOException wrapping one, and a write session's result an
+        // unchecked execution exception around one.  The payload's own
+        // failures, the frontend's refusals among them, pass as they came.
+        try {
+            return uploadOrThrow(blobInfo, payload, contentLength, options);
+        } catch (StorageException se) {
+            throw withoutRequest(se);
+        } catch (IOException ioe) {
+            if (ioe.getCause() instanceof StorageException se) {
+                throw new IOException(withoutRequest(se));
+            }
+            throw ioe;
+        } catch (UncheckedExecutionException uee) {
+            if (uee.getCause() instanceof StorageException se) {
+                throw withoutRequest(se);
+            }
+            throw uee;
+        }
+    }
+
+    private BlobInfo uploadOrThrow(BlobInfo blobInfo, InputStream payload,
             @Nullable Long contentLength, BlobWriteOption... options)
             throws IOException {
         int chunkSize = uploadChunkSize(contentLength);
@@ -2723,6 +2750,26 @@ public final class GCloudBlobStore implements BlobStore {
         default -> { }
         }
         return se;
+    }
+
+    /**
+     * Rebuilds the SDK's failure of an upload from its status alone.  The
+     * SDK's message, and again its cause's, quote the URI of the resumable
+     * session, on which GCS accepts the object's bytes without any
+     * credential for as long as the session is open -- and a refusal meant
+     * to be retried, such as the 429 for writing one object twice within a
+     * second or a 5xx, leaves it open.  An error {@link #translate} does not
+     * map is logged by the servlet container, message and cause, so neither
+     * may leave the store.  Callers read only the status.
+     */
+    private static StorageException withoutRequest(StorageException se) {
+        String reason = se.getReason();
+        Throwable cause = se.getCause();
+        return new StorageException(se.getCode(),
+                "Upload failed with status " + se.getCode() +
+                (Strings.isNullOrEmpty(reason) ? "" : ", " + reason) +
+                (cause == null ? "" : ": " + cause.getClass().getName()),
+                reason, /*cause=*/ null);
     }
 
     // Build a 412 for a failed conditional-GET precondition, echoing the
