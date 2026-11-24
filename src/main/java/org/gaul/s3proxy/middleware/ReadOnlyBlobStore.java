@@ -41,6 +41,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockRequest;
 import software.amazon.awssdk.services.s3.model.DeletePublicAccessBlockResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutBucketEncryptionRequest;
@@ -218,5 +220,12 @@ final class ReadOnlyBlobStore extends ForwardingBlobStore {
     public UploadPartResponse uploadMultipartPart(MultipartUpload mpu,
             UploadPartRequest request, InputStream is) {
         throw new UnsupportedOperationException("read-only BlobStore");
+    }
+
+    /** Names are left alone here, so the page is the delegate's. */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return delegate().listMultipartUploads(request);
     }
 }

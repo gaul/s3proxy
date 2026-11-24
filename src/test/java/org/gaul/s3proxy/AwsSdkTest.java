@@ -4802,6 +4802,80 @@ public final class AwsSdkTest {
                 .key(blobName)).asUtf8String()).isEqualTo("first");
     }
 
+    /**
+     * ListMultipartUploads folds keys by the delimiter into common prefixes,
+     * selects by prefix, and pages by its markers, each entry once.  The
+     * delimiter used to be taken and ignored, every upload under a folder
+     * listed one by one.
+     */
+    @Test
+    public void testListMultipartUploadsDelimiterAndPaging() throws Exception {
+        // aws-s3 relays its backend's listing, and MiniStack takes the
+        // delimiter and folds nothing.  S3 folds, but a common prefix does
+        // not advance its next key marker: a page that ends in one names
+        // the last upload before it, or none at all, so the prefix comes
+        // again on the next page, and at one entry a page S3 never gets
+        // past it.  LocalStack does the same.  The other stores list each
+        // prefix once and resume after it.
+        boolean relayed = blobStoreType.equals("aws-s3");
+        assumeTrue(!relayed || blobStoreEndpoint.getPort() != MINISTACK_PORT);
+        boolean pagesPrefixes = !relayed;
+        for (String key : List.of("a", "dir/x", "dir/y", "dir/sub/z", "e",
+                "e")) {
+            client.createMultipartUpload(b -> b.bucket(containerName)
+                    .key(key));
+        }
+
+        var folded = client.listMultipartUploads(b -> b
+                .bucket(containerName).delimiter("/"));
+        assertThat(folded.uploads()).extracting(
+                software.amazon.awssdk.services.s3.model.MultipartUpload::key)
+                .containsExactly("a", "e", "e");
+        assertThat(folded.commonPrefixes()).extracting(CommonPrefix::prefix)
+                .containsExactly("dir/");
+        assertThat(folded.isTruncated()).isFalse();
+
+        var below = client.listMultipartUploads(b -> b.bucket(containerName)
+                .prefix("dir/").delimiter("/"));
+        assertThat(below.uploads()).extracting(
+                software.amazon.awssdk.services.s3.model.MultipartUpload::key)
+                .containsExactly("dir/x", "dir/y");
+        assertThat(below.commonPrefixes()).extracting(CommonPrefix::prefix)
+                .containsExactly("dir/sub/");
+
+        for (String delimiter : pagesPrefixes ?
+                new String[] {null, "/"} : new String[] {null}) {
+            var listed = new ArrayList<String>();
+            String keyMarker = null;
+            String uploadIdMarker = null;
+            // six entries at one a page, and a backend that cannot page
+            // on fails here rather than holding the lane forever
+            for (int pages = 0; ; ++pages) {
+                assertThat(pages).as("delimiter %s", delimiter)
+                        .isLessThan(7);
+                String km = keyMarker;
+                String um = uploadIdMarker;
+                var page = client.listMultipartUploads(b -> b
+                        .bucket(containerName).delimiter(delimiter)
+                        .maxUploads(1).keyMarker(km).uploadIdMarker(um));
+                assertThat(page.uploads().size() +
+                        page.commonPrefixes().size()).isLessThanOrEqualTo(1);
+                page.uploads().forEach(u -> listed.add(u.key()));
+                page.commonPrefixes().forEach(p -> listed.add(p.prefix()));
+                if (!page.isTruncated()) {
+                    break;
+                }
+                keyMarker = page.nextKeyMarker();
+                uploadIdMarker = page.nextUploadIdMarker();
+            }
+            assertThat(listed).as("delimiter %s", delimiter)
+                    .containsExactlyElementsOf(delimiter == null ?
+                            List.of("a", "dir/sub/z", "dir/x", "dir/y", "e",
+                                    "e") :
+                            List.of("a", "dir/", "e", "e"));
+        }
+    }
+
     @Test
     public void testMultipartUploadAbort() throws Exception {
         String blobName = "multipart-upload-abort";

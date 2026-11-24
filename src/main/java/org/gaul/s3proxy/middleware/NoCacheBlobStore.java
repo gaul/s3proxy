@@ -22,6 +22,8 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 
 /**
  * BlobStore which drops ETag or date-based cache options from object requests.
@@ -58,4 +60,10 @@ final class NoCacheBlobStore extends ForwardingBlobStore {
         return request;
     }
 
+    /** Names are left alone here, so the page is the delegate's. */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return delegate().listMultipartUploads(request);
+    }
 }

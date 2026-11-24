@@ -39,6 +39,8 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -213,4 +215,10 @@ final class UserMetadataReplacerBlobStore extends ForwardingBlobStore {
         return false;
     }
 
+    /** Keys are left alone here; only metadata is renamed, so the page is the delegate's. */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return delegate().listMultipartUploads(request);
+    }
 }

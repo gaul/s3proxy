@@ -102,6 +102,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -1161,6 +1162,21 @@ public final class AwsS3SdkBlobStore implements BlobStore {
             return builder.build();
         } catch (S3Exception e) {
             throw propagate(e, container, null);
+        }
+    }
+
+    /**
+     * S3 pages its uploads by prefix, delimiter and markers itself, so a
+     * page is one request rather than the whole bucket's uploads read
+     * again for each.
+     */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        try {
+            return s3Client.listMultipartUploads(request);
+        } catch (S3Exception e) {
+            throw propagate(e, request.bucket(), null);
         }
     }
 

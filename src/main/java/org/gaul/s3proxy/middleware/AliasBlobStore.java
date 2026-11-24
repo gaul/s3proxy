@@ -69,6 +69,8 @@ import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -423,11 +425,22 @@ public final class AliasBlobStore extends ForwardingBlobStore {
         // applies to the request, not the entries.
         return delegate().listMultipartUploads(getContainer(container));
     }
+
+    /**
+     * The listing names only keys and upload IDs; the container alias
+     * applies to the request, not the entries.
+     */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return delegate().listMultipartUploads(request.toBuilder()
+                .bucket(getContainer(request.bucket()))
+                .build());
+    }
     // Disable versioning: the alias mapping does not extend to the
     // versioned operations.
     @Override
     public boolean supportsVersioning() {
         return false;
     }
-
 }

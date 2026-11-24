@@ -83,6 +83,8 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -1115,8 +1117,34 @@ public interface BlobStore extends AutoCloseable {
                 "backend does not keep the parts of an upload readable");
     }
 
+    /**
+     * Every upload in progress in the container, in no particular order:
+     * what {@link #listMultipartUploads(ListMultipartUploadsRequest)} pages
+     * through by default, and what deleting a container aborts.
+     */
     List<software.amazon.awssdk.services.s3.model.MultipartUpload>
             listMultipartUploads(String container);
+
+    /**
+     * One page of ListMultipartUploads: the uploads the request's prefix,
+     * markers and delimiter select, a key the delimiter folds reported
+     * once as a common prefix, no more than max-uploads entries in all.
+     * The default cuts the page from {@link #listMultipartUploads(String)},
+     * which a store that can only enumerate its uploads has to read whole
+     * for every page; a store whose backend pages them itself answers
+     * natively.
+     *
+     * <p>{@link ForwardingBlobStore} does not forward this, so that a
+     * wrapper that renames keys or buckets -- and translates them in
+     * {@link #listMultipartUploads(String)} -- cannot hand back the
+     * backend's names by inheriting a forward it never translated.  A
+     * wrapper that leaves names alone forwards it itself.
+     */
+    default ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return UploadListings.page(listMultipartUploads(request.bucket()),
+                request);
+    }
 
     long getMinimumMultipartPartSize();
 }

@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -176,6 +175,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsRequest;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -3485,10 +3485,6 @@ public class S3ProxyHandler {
             HttpServletResponse response, BlobStore blobStore,
             String container) throws IOException {
         String delimiter = request.getParameter("delimiter");
-        if (delimiter != null && !delimiter.isEmpty() &&
-                !delimiter.equals("/")) {
-            throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
-        }
         String keyMarker = request.getParameter("key-marker");
         String uploadIdMarker = request.getParameter("upload-id-marker");
 
@@ -3511,38 +3507,22 @@ public class S3ProxyHandler {
         String encodingType = request.getParameter("encoding-type");
         String prefix = request.getParameter("prefix");
 
-        var uploads = blobStore.listMultipartUploads(
-                container);
-
-        var filtered = uploads.stream()
-                .filter(u -> prefix == null || u.key().startsWith(prefix))
-                .filter(u -> {
-                    if (keyMarker == null) {
-                        return true;
-                    }
-                    int cmp = u.key().compareTo(keyMarker);
-                    if (cmp > 0) {
-                        return true;
-                    }
-                    if (cmp == 0 && uploadIdMarker != null) {
-                        return u.uploadId().compareTo(uploadIdMarker) > 0;
-                    }
-                    return false;
-                })
-                .sorted(Comparator.comparing(
-                        software.amazon.awssdk.services.s3.model
-                                .MultipartUpload::key)
-                        .thenComparing(software.amazon.awssdk.services.s3
-                                .model.MultipartUpload::uploadId))
-                .collect(Collectors.toList());
-
-        boolean isTruncated = filtered.size() > maxUploads;
-        var page = isTruncated ?
-                filtered.subList(0, maxUploads) :
-                filtered;
-        if (isTruncated && !page.isEmpty()) {
-            checkMarkerEncodable(encodingType,
-                    page.get(page.size() - 1).key());
+        // The store cuts the page: one that pages its uploads itself does
+        // so natively, and the others from every upload they have.
+        var listing = blobStore.listMultipartUploads(
+                ListMultipartUploadsRequest.builder()
+                        .bucket(container)
+                        .prefix(prefix)
+                        .delimiter(Strings.emptyToNull(delimiter))
+                        .keyMarker(Strings.emptyToNull(keyMarker))
+                        .uploadIdMarker(Strings.emptyToNull(uploadIdMarker))
+                        .maxUploads(maxUploads)
+                        .build());
+        var page = listing.uploads();
+        boolean isTruncated = Boolean.TRUE.equals(listing.isTruncated());
+        String nextKeyMarker = isTruncated ? listing.nextKeyMarker() : null;
+        if (nextKeyMarker != null) {
+            checkMarkerEncodable(encodingType, nextKeyMarker);
         }
 
         response.setCharacterEncoding(UTF_8);
@@ -3568,14 +3548,19 @@ public class S3ProxyHandler {
             } else {
                 writeSimpleElement(xml, "UploadIdMarker", uploadIdMarker);
             }
-            if (isTruncated && !page.isEmpty()) {
-                var last = page.get(page.size() - 1);
+            if (nextKeyMarker != null) {
                 writeSimpleElement(xml, "NextKeyMarker", encodeBlob(
-                        encodingType, last.key()));
-                writeSimpleElement(xml, "NextUploadIdMarker",
-                        last.uploadId());
+                        encodingType, nextKeyMarker));
             } else {
                 xml.writeEmptyElement("NextKeyMarker");
+            }
+            // none after a page that ends in a common prefix
+            String nextUploadIdMarker = isTruncated ?
+                    listing.nextUploadIdMarker() : null;
+            if (!Strings.isNullOrEmpty(nextUploadIdMarker)) {
+                writeSimpleElement(xml, "NextUploadIdMarker",
+                        nextUploadIdMarker);
+            } else {
                 xml.writeEmptyElement("NextUploadIdMarker");
             }
             if (Strings.isNullOrEmpty(delimiter)) {
@@ -3625,7 +3610,12 @@ public class S3ProxyHandler {
                 xml.writeEndElement();
             }
 
-            // TODO: CommonPrefixes
+            for (var commonPrefix : listing.commonPrefixes()) {
+                xml.writeStartElement("CommonPrefixes");
+                writeSimpleElement(xml, "Prefix", encodeBlob(encodingType,
+                        commonPrefix.prefix()));
+                xml.writeEndElement();
+            }
 
             xml.writeEndElement();
 

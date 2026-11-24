@@ -23,6 +23,8 @@ import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -78,4 +80,11 @@ public final class StorageClassBlobStore extends ForwardingBlobStore {
     }
 
     // TODO: copyBlob
+
+    /** Names are left alone here, so the page is the delegate's. */
+    @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        return delegate().listMultipartUploads(request);
+    }
 }

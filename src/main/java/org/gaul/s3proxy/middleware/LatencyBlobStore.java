@@ -53,6 +53,8 @@ import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
@@ -279,6 +281,13 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
     }
 
     @Override
+    public ListMultipartUploadsResponse listMultipartUploads(
+            ListMultipartUploadsRequest request) {
+        simulateLatency(OP_LIST_MULTIPART);
+        return delegate().listMultipartUploads(request);
+    }
+
+    @Override
     public long getMinimumMultipartPartSize() {
         simulateLatency(OP_MULTIPART_PARAM);
         return super.getMinimumMultipartPartSize();
@@ -303,5 +312,4 @@ public final class LatencyBlobStore extends ForwardingBlobStore {
             }
         }
     }
-
 }
