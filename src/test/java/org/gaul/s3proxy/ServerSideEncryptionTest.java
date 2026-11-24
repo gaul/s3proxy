@@ -676,6 +676,82 @@ public final class ServerSideEncryptionTest {
     }
 
     @Test
+    public void testCustomerKeyMultipartPartAnswersOnlyToItsKey()
+            throws Exception {
+        startEncrypting();
+
+        var create = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        var part = client.uploadPart(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId()).partNumber(1)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)),
+                RequestBody.fromString("payload"));
+
+        // The store keeps the part under a name of its own, which a request
+        // may read while the upload is in flight -- ListMultipartUploads
+        // hands out everything the name is made of.  The bytes are the ones
+        // the finished object will hold, and answer to the same key.
+        // as the nio2 stores name a part
+        var partKey = ".mpus-" + create.uploadId() + "-mpu-1";
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key(partKey)));
+        assertStatus(400, () -> client.getObjectAsBytes(
+                b -> b.bucket(containerName).key(partKey)
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_B))
+                        .sseCustomerKeyMD5(keyMD5(KEY_B))));
+        assertStatus(400, () -> client.headObject(
+                b -> b.bucket(containerName).key(partKey)));
+        assertStatus(400, () -> client.getObjectAttributes(
+                b -> b.bucket(containerName).key(partKey)
+                        .objectAttributes(ObjectAttributes.E_TAG,
+                                ObjectAttributes.OBJECT_SIZE)));
+
+        // Nor may a copy carry them out from under the key, whole or as a
+        // part of some other upload.
+        assertStatus(400, () -> client.copyObject(b -> b
+                .sourceBucket(containerName).sourceKey(partKey)
+                .destinationBucket(containerName).destinationKey("copy")));
+        var plain = client.createMultipartUpload(
+                b -> b.bucket(containerName).key("copy"));
+        assertStatus(400, () -> client.uploadPartCopy(b -> b
+                .sourceBucket(containerName).sourceKey(partKey)
+                .destinationBucket(containerName).destinationKey("copy")
+                .uploadId(plain.uploadId()).partNumber(1)));
+        assertThat(client.listObjectsV2(b -> b.bucket(containerName))
+                .contents()).isEmpty();
+        assertThat(client.listParts(b -> b.bucket(containerName).key("copy")
+                .uploadId(plain.uploadId())).parts()).isEmpty();
+
+        // The upload itself is none the worse for its parts being held to
+        // the key: it completes, and the object holds what was uploaded.
+        client.completeMultipartUpload(
+                b -> b.bucket(containerName).key("mpu")
+                        .uploadId(create.uploadId())
+                        .multipartUpload(CompletedMultipartUpload.builder()
+                                .parts(CompletedPart.builder()
+                                        .partNumber(1)
+                                        .eTag(part.eTag())
+                                        .build())
+                                .build())
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A)));
+        assertThat(client.getObjectAsBytes(
+                b -> b.bucket(containerName).key("mpu")
+                        .sseCustomerAlgorithm("AES256")
+                        .sseCustomerKey(encodeKey(KEY_A))
+                        .sseCustomerKeyMD5(keyMD5(KEY_A))).asUtf8String())
+                .isEqualTo("payload");
+    }
+
+    @Test
     public void testBucketEncryptionRoundTrip() throws Exception {
         startEncrypting();
 

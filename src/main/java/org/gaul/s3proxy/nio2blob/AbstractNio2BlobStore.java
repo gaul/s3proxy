@@ -3327,10 +3327,14 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         enforceUploadCustomerKey(encryption, request.sseCustomerAlgorithm(),
                 request.sseCustomerKey(), request.sseCustomerKeyMD5());
         var partName = multipartPartName(mpu.id(), mpu.blobName(), request.partNumber());
+        // The part rests under the upload's encryption as the stub and the
+        // assembled object do.  Its name can be read like any other key, and
+        // a read is judged against the customer key the blob records.
         var blob = Blob.builder(partName)
                 .payload(is)
                 .contentLength(requireNonNull(request.contentLength()))
                 .contentMD5(SdkRequests.contentMD5(request))
+                .encryption(encryption)
                 .build();
         var partETag = putBlob(mpu.containerName(), blob,
                 ObjectCannedACL.PRIVATE, /*ifNoneMatch=*/ null, /*parts=*/ null,
@@ -4896,8 +4900,9 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
      *
      * <p>Reads are deliberately not refused: CompleteMultipartUpload hashes
      * each part by reading it back through {@link #getBlob}, and there is no
-     * separate way in to say so.  Reading a part exposes no more than
-     * ListParts already does to the same caller.
+     * separate way in to say so.  A part therefore rests under its upload's
+     * encryption, so that a client reading one by name must present the
+     * customer key the upload was created with.
      */
     private static void checkNotReserved(String key) {
         checkNoDotSegment(key);
