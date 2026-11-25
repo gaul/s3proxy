@@ -16,6 +16,7 @@
 
 package org.gaul.s3proxy;
 
+import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayInputStream;
@@ -92,7 +93,10 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * <p>The signed target signs most of its requests, with V2 or with the
  * SDK's V4 signer in each of its forms, so that they reach the operation
  * they name rather than stopping at SignatureDoesNotMatch; see
- * {@link Signing}.
+ * {@link Signing}.  A third of the bodies are built rather than written
+ * byte by byte -- the XML of DeleteObjects and the bucket configurations,
+ * CompleteMultipartUpload, browser forms with signed policies -- so that
+ * they get past the parse to the checks behind it; see {@link FuzzBodies}.
  *
  * <p>Without JAZZER_FUZZ these run the saved inputs only.  To fuzz one
  * target, which is all Jazzer fuzzes in a run:
@@ -375,7 +379,7 @@ public final class HandlerFuzzTest {
         assertThat(capture(captured, new Request("POST", key,
                 List.of(new Parameter("uploads", null)), List.of(),
                 new byte[0]))).startsWith("HTTP/1.1 200 ");
-        String uploadId = captured.values().get(0);
+        String uploadId = captured.uploadIds().get(0);
         assertThat(capture(captured, new Request("PUT", key, List.of(
                 new Parameter("partNumber", "1"),
                 new Parameter("uploadId", uploadId)), List.of(),
@@ -383,7 +387,8 @@ public final class HandlerFuzzTest {
                 .startsWith("HTTP/1.1 200 ");
         assertThat(capture(captured, new Request("POST", key,
                 List.of(new Parameter("uploadId", uploadId)), List.of(),
-                captured.completeMultipartUpload())))
+                FuzzBodies.completeMultipartUpload(new CannedChoices(),
+                        captured.eTags()).getBytes(StandardCharsets.UTF_8))))
                 .startsWith("HTTP/1.1 200 ");
         assertThat(capture(captured, new Request("GET", key, List.of(),
                 List.of(), new byte[0]))).endsWith("\r\n\r\ncontent");
@@ -402,12 +407,91 @@ public final class HandlerFuzzTest {
                             StandardCharsets.UTF_8))))
                     .startsWith("HTTP/1.1 200 ");
         }
-        String first = versioned.values().stream()
-                .filter(value -> value.startsWith("v"))
-                .findFirst().orElseThrow();
+        String first = versioned.versionIds().get(0);
         assertThat(capture(versioned, new Request("GET", object,
                 List.of(new Parameter("versionId", first)), List.of(),
                 new byte[0]))).endsWith("\r\n\r\nfirst");
+    }
+
+    /**
+     * Every body the fuzzer can build is one its operation accepts when
+     * each choice is the valid one, browser forms signed either way
+     * included; a template that drifted from what S3Proxy reads would
+     * otherwise be refused at every try without anyone noticing.
+     */
+    @Test
+    void testBuiltBodiesSucceed() throws Exception {
+        reset(signedStore);
+        String bucket = "/" + BUCKET;
+        String fit = "fit";
+        String md5 = "Content-MD5";
+        for (Object[] expected : new Object[][] {
+                {FuzzBodies.Kind.VERSIONING, bucket, "200"},
+                {FuzzBodies.Kind.ENCRYPTION, bucket, "200"},
+                {FuzzBodies.Kind.ACL, bucket + "/key", "200"},
+                {FuzzBodies.Kind.CREATE_BUCKET, "/created", "200"},
+                {FuzzBodies.Kind.DELETE_OBJECTS, bucket, "200"},
+                {FuzzBodies.Kind.POST_FORM, bucket, "204"}}) {
+            var kind = (FuzzBodies.Kind) expected[0];
+            FuzzBodies.Built built = FuzzBodies.build(kind,
+                    new CannedChoices(fit, md5), BUCKET, List.of(),
+                    List.of(), List.of(), IDENTITY, CREDENTIAL);
+            assertThat(built).as("%s", kind).isNotNull();
+            var request = new Request(requireNonNull(built.method()),
+                    (String) expected[1], built.parameters(),
+                    built.headers(), built.body());
+            String answer = answer(write(request, built.form() ?
+                    Signing.NONE : Signing.V4_HEADER, -1));
+            assertThat(answer).as("%s", kind)
+                    .startsWith("HTTP/1.1 " + expected[2] + " ");
+        }
+        // what the DeleteObjects named is gone, what the form sent is there
+        assertThat(answer(write(new Request("GET", bucket + "/key",
+                List.of(), List.of(), new byte[0]), Signing.V4_HEADER, -1)))
+                .startsWith("HTTP/1.1 404 ");
+        assertThat(answer(write(new Request("GET", bucket + "/upload",
+                List.of(), List.of(), new byte[0]), Signing.V4_HEADER, -1)))
+                .endsWith("\r\n\r\ncontent");
+
+        FuzzBodies.Built v2 = requireNonNull(FuzzBodies.build(
+                FuzzBodies.Kind.POST_FORM, new CannedChoices("V2 form"),
+                BUCKET, List.of(), List.of(), List.of(), IDENTITY,
+                CREDENTIAL));
+        assertThat(answer(write(new Request("POST", bucket, List.of(),
+                v2.headers(), v2.body()), Signing.NONE, -1)))
+                .startsWith("HTTP/1.1 204 ");
+    }
+
+    /**
+     * Choices from a script: each flag named is set and the rest clear,
+     * each pick the first valid value, each count its least.
+     */
+    private static final class CannedChoices implements FuzzBodies.Choices {
+        private final Set<String> flags;
+
+        CannedChoices(String... flags) {
+            this.flags = Set.of(flags);
+        }
+
+        @Override
+        public boolean flag(String what) {
+            return flags.contains(what);
+        }
+
+        @Override
+        public int count(String what, int min, int max) {
+            return min;
+        }
+
+        @Override
+        public String pick(String what, List<String> valid) {
+            return valid.get(0);
+        }
+
+        @Override
+        public byte[] bytes(String what, int maxLength) {
+            return "content".getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     private static String capture(Captured captured, Request request)
@@ -465,31 +549,34 @@ public final class HandlerFuzzTest {
      */
     private static final class Captured {
         private final Set<String> values = new LinkedHashSet<>();
+        private final Set<String> uploadIds = new LinkedHashSet<>();
+        private final Set<String> versionIds = new LinkedHashSet<>();
         private final Set<String> eTags = new LinkedHashSet<>();
 
         void add(String answer) {
             Matcher header = CAPTURED_HEADER.matcher(answer);
             while (header.find()) {
-                add(header.group(1).equalsIgnoreCase("ETag"),
-                        header.group(2).strip());
+                add(header.group(1).equalsIgnoreCase("ETag") ? eTags :
+                        versionIds, header.group(2).strip());
             }
             Matcher element = CAPTURED_ELEMENT.matcher(answer);
             while (element.find()) {
-                add(element.group(1).equals("ETag"),
-                        element.group(2).replace("&quot;", "\"")
-                                .replace("&#34;", "\""));
+                add(switch (element.group(1)) {
+                case "UploadId" -> uploadIds;
+                case "VersionId" -> versionIds;
+                default -> eTags;
+                }, element.group(2).replace("&quot;", "\"")
+                        .replace("&#34;", "\""));
             }
         }
 
-        private void add(boolean eTag, String value) {
+        private void add(Set<String> kind, String value) {
             if (value.isEmpty()) {
                 return;
             }
-            if (values.size() < MAX_CAPTURED * 3) {
+            if (kind.size() < MAX_CAPTURED) {
+                kind.add(value);
                 values.add(value);
-            }
-            if (eTag && eTags.size() < MAX_CAPTURED) {
-                eTags.add(value);
             }
         }
 
@@ -501,25 +588,48 @@ public final class HandlerFuzzTest {
             return List.copyOf(values);
         }
 
-        /**
-         * A CompleteMultipartUpload body naming each ETag captured, as parts
-         * numbered from one in the order they were answered.
-         */
-        byte @Nullable [] completeMultipartUpload() {
-            if (eTags.isEmpty()) {
-                return null;
-            }
-            var xml = new StringBuilder("<CompleteMultipartUpload>");
-            int partNumber = 1;
-            for (String eTag : eTags) {
-                xml.append("<Part><PartNumber>").append(partNumber++)
-                        .append("</PartNumber><ETag>")
-                        .append(eTag.replace("&", "&amp;")
-                                .replace("<", "&lt;"))
-                        .append("</ETag></Part>");
-            }
-            return xml.append("</CompleteMultipartUpload>").toString()
-                    .getBytes(StandardCharsets.UTF_8);
+        List<String> uploadIds() {
+            return List.copyOf(uploadIds);
+        }
+
+        List<String> versionIds() {
+            return List.copyOf(versionIds);
+        }
+
+        List<String> eTags() {
+            return List.copyOf(eTags);
+        }
+    }
+
+    /** A body's choices made by the fuzzer, from its input and answers. */
+    private static final class FuzzChoices implements FuzzBodies.Choices {
+        private final FuzzedDataProvider data;
+        private final Captured captured;
+
+        FuzzChoices(FuzzedDataProvider data, Captured captured) {
+            this.data = data;
+            this.captured = captured;
+        }
+
+        @Override
+        public boolean flag(String what) {
+            return data.consumeBoolean();
+        }
+
+        @Override
+        public int count(String what, int min, int max) {
+            return data.consumeInt(min, max);
+        }
+
+        @Override
+        public String pick(String what, List<String> valid) {
+            return data.consumeInt(0, 3) == 0 ? value(data, captured, 20) :
+                    data.pickValue(valid);
+        }
+
+        @Override
+        public byte[] bytes(String what, int maxLength) {
+            return data.consumeBytes(data.consumeInt(0, maxLength));
         }
     }
 
@@ -536,9 +646,9 @@ public final class HandlerFuzzTest {
     }
 
     /** A query parameter, decoded; a null value is one without an '='. */
-    private record Parameter(String name, @Nullable String value) { }
+    record Parameter(String name, @Nullable String value) { }
 
-    private record Header(String name, String value) { }
+    record Header(String name, String value) { }
 
     /** A request as the fuzzer chose it, before it is signed and written. */
     private static final class Request {
@@ -674,15 +784,42 @@ public final class HandlerFuzzTest {
         // the paths that find a chunk's signature or the trailer wrong
         int tamper = signing.chunked() && data.consumeBoolean() ?
                 data.consumeInt(0, Integer.MAX_VALUE) : -1;
-        byte[] complete = captured.completeMultipartUpload();
-        byte[] body = complete != null && data.consumeBoolean() ? complete :
-                earlierBody != null ? earlierBody :
-                data.consumeRemainingAsBytes();
-        Wire wire = write(new Request(method, path.toString(), parameters,
+        // A third of the bodies are built, the rest written byte by byte
+        FuzzBodies.Built built = data.consumeInt(0, 2) != 0 ? null :
+                FuzzBodies.build(data.pickValue(FuzzBodies.Kind.values()),
+                        new FuzzChoices(data, captured), bucket,
+                        captured.uploadIds(), captured.versionIds(),
+                        captured.eTags(), IDENTITY, CREDENTIAL);
+        byte[] body;
+        String encodedPath = path.toString();
+        if (built == null) {
+            body = earlierBody != null ? earlierBody :
+                    data.consumeRemainingAsBytes();
+        } else {
+            body = built.body();
+            headers.addAll(built.headers());
+            parameters.addAll(built.parameters());
+            if (built.method() != null) {
+                method = built.method();
+                if (built.bucketLevel()) {
+                    encodedPath = "/" + bucket;
+                }
+            }
+            if (built.form()) {
+                // the form signs itself
+                signing = Signing.NONE;
+                tamper = -1;
+            }
+        }
+        Wire wire = write(new Request(method, encodedPath, parameters,
                 headers, body), signing, tamper);
+        // A built body is text, and what it says is most of what the
+        // request asked; one of the fuzzer's bytes is only counted.
         String described = (earlier.isEmpty() ? "" :
                 "after:\n" + earlier + "the request:\n") +
-                wire.head() + "<" + wire.body().length + " byte body>";
+                wire.head() + (built != null ?
+                new String(wire.body(), StandardCharsets.UTF_8) :
+                "<" + wire.body().length + " byte body>");
 
         UNANTICIPATED.clear();
         long start = System.nanoTime();
