@@ -26,6 +26,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -54,6 +55,7 @@ import com.google.common.base.Strings;
 import org.eclipse.jetty.server.LocalConnector;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.checksum.FlexChecksum;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -65,6 +67,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.AppenderBase;
 import software.amazon.awssdk.checksums.DefaultChecksumAlgorithm;
+import software.amazon.awssdk.checksums.SdkChecksum;
 import software.amazon.awssdk.http.ContentStreamProvider;
 import software.amazon.awssdk.http.SdkHttpFullRequest;
 import software.amazon.awssdk.http.SdkHttpMethod;
@@ -97,6 +100,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * byte by byte -- the XML of DeleteObjects and the bucket configurations,
  * CompleteMultipartUpload, browser forms with signed policies -- so that
  * they get past the parse to the checks behind it; see {@link FuzzBodies}.
+ * Half the header values are composed from the parts their header takes,
+ * such as a copy source naming a key and version an answer gave, a range,
+ * a date near now, or the digest of the body itself.
  *
  * <p>Without JAZZER_FUZZ these run the saved inputs only.  To fuzz one
  * target, which is all Jazzer fuzzes in a run:
@@ -126,9 +132,37 @@ public final class HandlerFuzzTest {
     /** The most values of each kind kept from the answers of an input. */
     private static final int MAX_CAPTURED = 8;
     private static final Pattern CAPTURED_ELEMENT = Pattern.compile(
-            "<(UploadId|VersionId|ETag)>([^<]*)</\\1>");
+            "<(UploadId|VersionId|ETag|Key)>([^<]*)</\\1>");
     private static final Pattern CAPTURED_HEADER = Pattern.compile(
             "(?im)^(ETag|x-amz-version-id): *([^\r\n]*)$");
+    /**
+     * Stands for the digest of the request's own body, computed once the
+     * body is chosen, since the headers are chosen before it.
+     */
+    private static final String BODY_DIGEST = "\0body digest";
+
+    private static final List<String> DATE_HEADERS = List.of(
+            "expires", "if-modified-since", "if-unmodified-since",
+            "x-amz-copy-source-if-modified-since",
+            "x-amz-copy-source-if-unmodified-since", "x-amz-date",
+            "x-amz-if-match-last-modified-time",
+            "x-amz-object-lock-retain-until-date");
+
+    private static final List<String> SIZE_HEADERS = List.of(
+            "x-amz-decoded-content-length", "x-amz-if-match-size",
+            "x-amz-mp-object-size", "x-amz-write-offset-bytes");
+
+    private static final List<String> ETAG_HEADERS = List.of(
+            "if-match", "if-none-match", "x-amz-copy-source-if-match",
+            "x-amz-copy-source-if-none-match");
+
+    private static final List<String> DIGEST_HEADERS = List.of(
+            "content-md5", "x-amz-checksum-crc32", "x-amz-checksum-crc32c",
+            "x-amz-checksum-crc64nvme", "x-amz-checksum-sha1",
+            "x-amz-checksum-sha256");
+
+    private static final List<String> CHECKSUM_ALGORITHMS = List.of(
+            "CRC32", "CRC32C", "CRC64NVME", "SHA1", "SHA256");
     /** The body of a request other than the last, which takes the rest. */
     private static final int MAX_EARLIER_BODY = 256;
 
@@ -463,6 +497,71 @@ public final class HandlerFuzzTest {
     }
 
     /**
+     * The values composed from their parts are the ones S3Proxy reads as
+     * such: each digest of the body verifies, a copy source naming a
+     * version an answer gave copies that version, a range reads its bytes
+     * and a date its moment, and a listing's keys are kept to address.
+     */
+    @Test
+    void testComposedValuesHold() throws Exception {
+        reset(signedStore);
+        byte[] content = "content".getBytes(StandardCharsets.UTF_8);
+        String object = "/" + BUCKET + "/digested";
+        // a request may carry one checksum, beside its Content-MD5
+        for (String name : DIGEST_HEADERS) {
+            assertThat(answer(write(new Request("PUT", object, List.of(),
+                    List.of(new Header(name, bodyDigest(name, content)),
+                            new Header("Content-MD5",
+                                    bodyDigest("Content-MD5", content))),
+                    content), Signing.V4_HEADER, -1)))
+                    .as(name).startsWith("HTTP/1.1 200 ");
+        }
+        assertThat(answer(write(new Request("PUT", object, List.of(),
+                List.of(new Header("x-amz-checksum-crc32",
+                        bodyDigest("x-amz-checksum-crc32", new byte[1]))),
+                content), Signing.V4_HEADER, -1)))
+                .startsWith("HTTP/1.1 400 ");
+
+        var versioned = new Captured();
+        capture(versioned, new Request("PUT", "/" + BUCKET,
+                List.of(new Parameter("versioning", null)), List.of(),
+                ("<VersioningConfiguration><Status>Enabled</Status>" +
+                "</VersioningConfiguration>").getBytes(
+                        StandardCharsets.UTF_8)));
+        for (String version : List.of("first", "second")) {
+            capture(versioned, new Request("PUT", "/" + BUCKET + "/source",
+                    List.of(), List.of(), version.getBytes(
+                            StandardCharsets.UTF_8)));
+        }
+        String first = versioned.versionIds().get(0);
+        assertThat(capture(versioned, new Request("PUT",
+                "/" + BUCKET + "/copy", List.of(), List.of(new Header(
+                        "x-amz-copy-source", copySource(true, BUCKET,
+                                "source", first))), new byte[0])))
+                .startsWith("HTTP/1.1 200 ");
+        assertThat(answer(write(new Request("GET", "/" + BUCKET + "/copy",
+                List.of(), List.of(new Header("Range", range(0, 1, 3))),
+                new byte[0]), Signing.V4_HEADER, -1)))
+                .startsWith("HTTP/1.1 206 ").endsWith("\r\n\r\nirs");
+
+        // HTTP's own form; a conditional ignores the ISO 8601 forms, as
+        // HTTP says it must, which are for the x-amz-* dates
+        assertThat(answer(write(new Request("GET", object, List.of(),
+                List.of(new Header("If-Unmodified-Since", date(0, -3600))),
+                new byte[0]), Signing.V4_HEADER, -1)))
+                .startsWith("HTTP/1.1 412 ");
+        assertThat(answer(write(new Request("GET", object, List.of(),
+                List.of(new Header("If-Unmodified-Since", date(0, 3600))),
+                new byte[0]), Signing.V4_HEADER, -1)))
+                .startsWith("HTTP/1.1 200 ");
+
+        var listed = new Captured();
+        capture(listed, new Request("GET", "/" + BUCKET, List.of(
+                new Parameter("list-type", "2")), List.of(), new byte[0]));
+        assertThat(listed.keys()).contains("key", "dir/key", "copy");
+    }
+
+    /**
      * Choices from a script: each flag named is set and the rest clear,
      * each pick the first valid value, each count its least.
      */
@@ -552,6 +651,7 @@ public final class HandlerFuzzTest {
         private final Set<String> uploadIds = new LinkedHashSet<>();
         private final Set<String> versionIds = new LinkedHashSet<>();
         private final Set<String> eTags = new LinkedHashSet<>();
+        private final Set<String> keys = new LinkedHashSet<>();
 
         void add(String answer) {
             Matcher header = CAPTURED_HEADER.matcher(answer);
@@ -564,9 +664,12 @@ public final class HandlerFuzzTest {
                 add(switch (element.group(1)) {
                 case "UploadId" -> uploadIds;
                 case "VersionId" -> versionIds;
+                case "Key" -> keys;
                 default -> eTags;
                 }, element.group(2).replace("&quot;", "\"")
-                        .replace("&#34;", "\""));
+                        .replace("&#34;", "\"").replace("&lt;", "<")
+                        .replace("&gt;", ">").replace("&apos;", "'")
+                        .replace("&amp;", "&"));
             }
         }
 
@@ -598,6 +701,11 @@ public final class HandlerFuzzTest {
 
         List<String> eTags() {
             return List.copyOf(eTags);
+        }
+
+        /** The keys listings named, for later requests to address. */
+        List<String> keys() {
+            return List.copyOf(keys);
         }
     }
 
@@ -760,8 +868,10 @@ public final class HandlerFuzzTest {
         String bucket = data.pickValue(List.of(BUCKET, BUCKET, "", "other"));
         path.append(bucket);
         if (!bucket.isEmpty() && data.consumeBoolean()) {
-            path.append('/').append(encode(data.pickValue(List.of(
-                    "key", "dir/key", "dir/", data.consumeString(24))),
+            var keys = new ArrayList<>(List.of("key", "dir/key", "dir/",
+                    data.consumeString(24)));
+            keys.addAll(captured.keys());
+            path.append('/').append(encode(data.pickValue(keys),
                     /*path=*/ true));
         }
         var parameters = new ArrayList<Parameter>();
@@ -775,8 +885,9 @@ public final class HandlerFuzzTest {
         var headers = new ArrayList<Header>();
         int headerCount = data.consumeInt(0, 4);
         for (int i = 0; i < headerCount; ++i) {
-            headers.add(new Header(data.pickValue(HEADERS),
-                    headerValue(value(data, captured, 60))));
+            String name = data.pickValue(HEADERS);
+            headers.add(new Header(name,
+                    composedValue(name, data, captured, bucket)));
         }
         Signing signing = signs ? data.pickValue(Signing.values()) :
                 Signing.NONE;
@@ -809,6 +920,13 @@ public final class HandlerFuzzTest {
                 // the form signs itself
                 signing = Signing.NONE;
                 tamper = -1;
+            }
+        }
+        for (int i = 0; i < headers.size(); ++i) {
+            Header header = headers.get(i);
+            if (header.value().equals(BODY_DIGEST)) {
+                headers.set(i, new Header(header.name(),
+                        bodyDigest(header.name(), body)));
             }
         }
         Wire wire = write(new Request(method, encodedPath, parameters,
@@ -1089,6 +1207,111 @@ public final class HandlerFuzzTest {
                         DefaultChecksumAlgorithm.CRC32);
             }
         });
+    }
+
+    /**
+     * A header's value, composed half the time from the parts the header
+     * takes -- a bucket, a key and a version an answer gave for a copy
+     * source, offsets for a range, a date near now, the digest of the body
+     * itself -- since a value the fuzzer writes whole seldom has the form,
+     * let alone names what exists.  The rest of the time it is any value.
+     */
+    private static String composedValue(String name, FuzzedDataProvider data,
+            Captured captured, String bucket) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (data.consumeBoolean()) {
+            return headerValue(value(data, captured, 60));
+        }
+        if (lower.equals("x-amz-copy-source")) {
+            var keys = new ArrayList<>(List.of("key", "dir/key"));
+            keys.addAll(captured.keys());
+            var versionIds = new ArrayList<>(captured.versionIds());
+            versionIds.add("null");
+            return copySource(data.consumeBoolean(),
+                    data.pickValue(List.of(BUCKET, bucket, "other")),
+                    data.pickValue(keys), data.consumeBoolean() ?
+                    data.pickValue(versionIds) : null);
+        } else if (lower.equals("range") ||
+                lower.equals("x-amz-copy-source-range")) {
+            return range(data.consumeInt(0, 3), data.consumeInt(0, 16),
+                    data.consumeInt(0, 16));
+        } else if (DATE_HEADERS.contains(lower)) {
+            return date(data.consumeInt(0, 2),
+                    data.consumeInt(-10_000_000, 10_000_000));
+        } else if (SIZE_HEADERS.contains(lower)) {
+            return String.valueOf(data.consumeInt(-1, 16));
+        } else if (ETAG_HEADERS.contains(lower)) {
+            var eTags = new ArrayList<>(captured.eTags());
+            eTags.add("*");
+            return data.pickValue(eTags);
+        } else if (DIGEST_HEADERS.contains(lower)) {
+            return BODY_DIGEST;
+        } else if (lower.equals("x-amz-checksum-algorithm") ||
+                lower.equals("x-amz-sdk-checksum-algorithm")) {
+            return data.pickValue(CHECKSUM_ALGORITHMS);
+        }
+        return headerValue(value(data, captured, 60));
+    }
+
+    /** An x-amz-copy-source naming the key, and the version if one. */
+    static String copySource(boolean leadingSlash, String bucket, String key,
+            @Nullable String versionId) {
+        return (leadingSlash ? "/" : "") + bucket + "/" +
+                encode(key, /*path=*/ true) +
+                (versionId == null ? "" : "?versionId=" +
+                        encode(versionId, /*path=*/ false));
+    }
+
+    /** A byte range in one of the forms a Range header takes. */
+    static String range(int form, int first, int second) {
+        int low = Math.min(first, second);
+        int high = Math.max(first, second);
+        return "bytes=" + switch (form) {
+        case 0 -> low + "-" + high;
+        case 1 -> low + "-";
+        case 2 -> "-" + high;
+        default -> low + "-" + high + "," + (high + 1) + "-";
+        };
+    }
+
+    /** A date some seconds from now, in one of the forms S3 reads. */
+    static String date(int form, int seconds) {
+        ZonedDateTime when = ZonedDateTime.now(ZoneOffset.UTC)
+                .plusSeconds(seconds);
+        return switch (form) {
+        case 0 -> DateTimeFormatter.RFC_1123_DATE_TIME.format(when);
+        case 1 -> DateTimeFormatter.ISO_INSTANT.format(when);
+        default -> DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                .format(when);
+        };
+    }
+
+    /** What the digest header says of a body that is this one. */
+    static String bodyDigest(String name, byte[] body) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        byte[] digest;
+        if (lower.equals("content-md5")) {
+            try {
+                digest = MessageDigest.getInstance("MD5").digest(body);
+            } catch (GeneralSecurityException e) {
+                throw new AssertionError(e);
+            }
+        } else {
+            // The SDK computes CRC64NVME only with the CRT, which S3Proxy
+            // does not ship; its own implementation stands in for that one.
+            SdkChecksum checksum = lower.equals("x-amz-checksum-crc64nvme") ?
+                    FlexChecksum.fromHeaderName(lower).newChecksum() :
+                    SdkChecksum.forAlgorithm(switch (lower) {
+                    case "x-amz-checksum-crc32" -> DefaultChecksumAlgorithm.CRC32;
+                    case "x-amz-checksum-crc32c" ->
+                        DefaultChecksumAlgorithm.CRC32C;
+                    case "x-amz-checksum-sha1" -> DefaultChecksumAlgorithm.SHA1;
+                    default -> DefaultChecksumAlgorithm.SHA256;
+                    });
+            checksum.update(body, 0, body.length);
+            digest = checksum.getChecksumBytes();
+        }
+        return Base64.getEncoder().encodeToString(digest);
     }
 
     private static String statusLine(ByteBuffer response) {
