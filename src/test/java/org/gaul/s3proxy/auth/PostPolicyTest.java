@@ -256,6 +256,21 @@ public final class PostPolicyTest {
                 S3ErrorCode.INVALID_POLICY_DOCUMENT);
     }
 
+    /**
+     * A bound past what a long holds is as invalid as a negative one.  JSON
+     * has no limit on an integer's size, and Jackson answered the request
+     * for a long with an exception the handler did not expect: a 500.
+     */
+    @Test
+    public void testLengthBoundBeyondLongIsInvalid() throws Exception {
+        assertCode(() -> parse(policy(
+                "[\"content-length-range\", 0, 99999999999999999999]")),
+                S3ErrorCode.INVALID_POLICY_DOCUMENT);
+        assertCode(() -> parse(policy(
+                "[\"content-length-range\", 99999999999999999999, 0]")),
+                S3ErrorCode.INVALID_POLICY_DOCUMENT);
+    }
+
     /** Some form builders quote the bounds; S3 takes them either way. */
     @Test
     public void testQuotedLengthBounds() throws Exception {

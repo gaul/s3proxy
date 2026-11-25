@@ -305,6 +305,13 @@ public final class PostPolicy {
     private static long length(JsonNode node) {
         long value;
         if (node.isIntegralNumber()) {
+            // JSON sets no limit on an integer, and Jackson throws rather
+            // than truncate one past a long, which reached the client as a
+            // 500.  No payload is that long, so no policy means it.
+            if (!node.canConvertToLong()) {
+                throw invalid("Invalid policy: content-length-range bound " +
+                        node.asString() + " is out of range", null);
+            }
             value = node.longValue();
         } else if (node.isString()) {
             // Some form builders quote the bounds.
