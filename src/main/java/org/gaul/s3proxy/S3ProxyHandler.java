@@ -1237,7 +1237,10 @@ public class S3ProxyHandler {
                 }
             }
             case NONE -> { }
-            default -> throw new IllegalArgumentException("Unhandled type: " +
+            // A parsed header is V2 or V4 and nothing else, so reaching
+            // here is S3Proxy's fault, a 500, not the client's, the 400 an
+            // IllegalArgumentException answers.
+            default -> throw new AssertionError("Unhandled type: " +
                     authHeader.getAuthenticationType());
             }
 
@@ -6646,7 +6649,8 @@ public class S3ProxyHandler {
             }
         }
         case NONE -> { }
-        default -> throw new IllegalArgumentException("Unhandled type: " +
+        // as above: a parsed header is V2 or V4
+        default -> throw new AssertionError("Unhandled type: " +
                 authHeader.getAuthenticationType());
         }
 

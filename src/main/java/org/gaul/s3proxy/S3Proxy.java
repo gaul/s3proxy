@@ -438,9 +438,10 @@ public final class S3Proxy {
                 }
             }
             case NONE -> { }
-            default -> throw new IllegalArgumentException(
-                    S3ProxyConstants.PROPERTY_AUTHORIZATION +
-                    " invalid value, was: " + authorization);
+            // fromString has already refused any value this does not name
+            default -> throw new AssertionError("Unhandled " +
+                    S3ProxyConstants.PROPERTY_AUTHORIZATION + ": " +
+                    authorization);
             }
 
             if (localIdentity != null || localCredential != null) {
