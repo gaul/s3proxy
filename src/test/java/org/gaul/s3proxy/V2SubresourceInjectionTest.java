@@ -42,10 +42,11 @@ import org.junit.jupiter.api.Test;
  * resource, so one left out rides along uncovered: the signature verifies
  * without it, yet the dispatcher still branches on it.  That is the V2 face
  * of the unsigned x-amz-* header flaw -- a signature good for one operation
- * made good for another -- and it reaches the two parameters that select an
- * operation and postdate SigV2, "?attributes" and "?encryption".  Signing
- * them turns the injection into a signature mismatch while a URL that signed
- * the parameter still performs the operation it named.
+ * made good for another -- and it reaches the parameters that select an
+ * operation and postdate SigV2: "?attributes" and "?encryption", and the
+ * object-lock and bucket access subresources.  Signing them turns the
+ * injection into a signature mismatch while a URL that signed the parameter
+ * still performs the operation it named.
  */
 public final class V2SubresourceInjectionTest {
     private static final String CONTENT = "the-object-body";
@@ -149,6 +150,43 @@ public final class V2SubresourceInjectionTest {
         HttpResponse<String> response = get(presign(
                 "/" + container, "encryption") + "&encryption");
         assertThat(response.body()).doesNotContain("SignatureDoesNotMatch");
+    }
+
+    /**
+     * The subresources that select an object-lock or bucket access
+     * operation, injected into URLs signed to upload an object or to write a
+     * bucket.  Unsigned, they reached the store with a body of the holder's
+     * choosing: a COMPLIANCE retention or a legal hold on the object, a
+     * default retention for the bucket, its public access block lifted, its
+     * object ownership changed.  Only the aws-s3-sdk backend implements
+     * these, so the transient store here answers a signed one 501; what
+     * matters is that an injected one is refused before it gets that far.
+     */
+    @Test
+    public void testObjectLockAndAccessInjectionRejected() throws Exception {
+        String object = "/" + container + "/" + KEY;
+        String bucket = "/" + container;
+        for (String[] target : new String[][] {
+                {object, "retention"},
+                {object, "legal-hold"},
+                {bucket, "object-lock"},
+                {bucket, "publicAccessBlock"},
+                {bucket, "ownershipControls"}}) {
+            String path = target[0];
+            String subresource = target[1];
+            HttpResponse<String> response = put(presign("PUT", path,
+                    /*subresource=*/ null) + "&" + subresource);
+            assertThat(response.statusCode()).as(subresource).isEqualTo(403);
+            assertThat(response.body()).as(subresource)
+                    .contains("SignatureDoesNotMatch");
+
+            response = put(presign("PUT", path, subresource) + "&" +
+                    subresource);
+            assertThat(response.body()).as(subresource)
+                    .doesNotContain("SignatureDoesNotMatch");
+        }
+        assertThat(get(presign(object, /*subresource=*/ null)).body())
+                .isEqualTo(CONTENT);
     }
 
     /**

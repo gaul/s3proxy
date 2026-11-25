@@ -67,8 +67,15 @@ public final class AwsSignature {
      * parameter that selects which operation runs therefore has to appear
      * here, or a signature good for one operation is good for another --
      * "?attributes" turning a signed GetObject into GetObjectAttributes,
-     * "?encryption" turning a signed bucket write into PutBucketEncryption.
-     * The parameters that merely shape a listing -- prefix, max-keys and the
+     * "?encryption" turning a signed bucket write into PutBucketEncryption,
+     * "?retention" turning a URL signed to upload an object into a COMPLIANCE
+     * retention on it that no one can shorten.  V2 clients disagree on which
+     * of the parameters newer than SigV2 they sign -- botocore signs
+     * object-lock but not retention, minio-go the reverse, and rclone,
+     * s3cmd and the AWS SDK for Java v1 none of them -- so a client that
+     * leaves one out fails here with SignatureDoesNotMatch rather than
+     * leaving the operation open to anyone holding one of its signatures;
+     * V4 signs the whole query and is unaffected.  The parameters that merely shape a listing -- prefix, max-keys and the
      * rest -- do not belong here: they steer no operation, and V2 clients do
      * not sign them.  This is the V2 face of the flaw the unsigned x-amz-*
      * header check closes for V4.
@@ -78,12 +85,16 @@ public final class AwsSignature {
             "attributes",
             "delete",
             "encryption",
+            "legal-hold",
             "lifecycle",
             "location",
             "logging",
             "notification",
+            "object-lock",
+            "ownershipControls",
             "partNumber",
             "policy",
+            "publicAccessBlock",
             "requestPayment",
             "response-cache-control",
             "response-content-disposition",
@@ -91,6 +102,7 @@ public final class AwsSignature {
             "response-content-language",
             "response-content-type",
             "response-expires",
+            "retention",
             "torrent",
             "uploadId",
             "uploads",
