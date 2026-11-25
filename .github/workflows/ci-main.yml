@@ -194,6 +194,48 @@ jobs:
           name: s3-tests-results-filesystem
           path: target/s3-tests-*.xml
 
+  # Fuzz every target tagged "fuzz" for ten minutes in all, from a fresh
+  # corpus each run; the saved inputs replay first, as in any test run.
+  # Jazzer fuzzes one target in a JVM, so Surefire gives each target a fork
+  # of its own, as many at once as the runner has cores, and the ten
+  # minutes are divided by how many rounds of forks the targets take.  A
+  # finding is saved as an input that reproduces it, uploaded below.
+  fuzz:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6.3.0
+        with:
+          distribution: "temurin"
+          java-version: "25"
+          cache: "maven"
+
+      - name: Fuzz for ten minutes
+        run: |
+          targets=$(grep -rl --include='*.java' '@Tag("fuzz")' src/test/java |
+                  wc -l)
+          cores=$(nproc)
+          rounds=$(( (targets + cores - 1) / cores ))
+          seconds=$(( 600 / rounds ))
+          echo "$targets targets on $cores cores: $rounds rounds of ${seconds}s"
+          # Surefire would otherwise kill a fork at five minutes, which
+          # Jazzer takes for a finding.
+          JAZZER_FUZZ=1 mvn test -Dgroups=fuzz -DforkCount=1C \
+              -DreuseForks=false -Djazzer.max_duration=${seconds}s \
+              -Dsurefire.timeout=$(( seconds + 300 ))
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: |
+            src/test/resources/org/gaul/s3proxy/*Inputs/
+            target/surefire-reports/
+
   # The filesystem backend on Windows, where a file system differs in ways
   # no Linux lane can show: names it reserves or cannot spell, case that is
   # kept but not told apart, no POSIX permissions to carry an ACL, and files
