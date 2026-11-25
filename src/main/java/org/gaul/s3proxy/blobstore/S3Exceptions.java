@@ -245,8 +245,19 @@ public final class S3Exceptions {
      * exception that has one in its place.
      */
     public static S3Exception noSessionToken() {
+        return misconfigured("Credential supplier named no session token");
+    }
+
+    /**
+     * A 500 InternalError for a fault in how S3Proxy was set up, found while
+     * serving a request: the operator's to fix rather than the client's.
+     * The detail is the exception's message, for the log, and the client is
+     * told only that the request failed on this side.  It carries no cause,
+     * for the reason {@link #noSessionToken()} gives.
+     */
+    public static S3Exception misconfigured(String detail) {
         return (S3Exception) S3Exception.builder()
-                .message("Credential supplier named no session token")
+                .message(detail)
                 .statusCode(500)
                 .awsErrorDetails(details(500, "InternalError",
                         "We encountered an internal error. Please try again.",

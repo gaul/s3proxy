@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -35,9 +36,12 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 /**
  * Keystone authenticates a caller who already holds a token by re-scoping it,
@@ -99,17 +103,60 @@ public final class OpenStackSwiftSessionTokenTest {
      */
     @Test
     public void testTempAuthRefusesASessionToken() {
-        try (BlobStore blobStore = new OpenStackSwiftBlobStore(
-                Suppliers.ofInstance(new Credentials("account:user", "key",
-                        "token")),
-                endpoint() + "/auth/v1.0", "account", "Default", "Default",
-                /*region=*/ "")) {
+        assertThatThrownBy(() -> tempAuthStore(Suppliers.ofInstance(
+                new Credentials("account:user", "key", "token"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Keystone token");
+
+        assertThat(requests).isEmpty();
+    }
+
+    /**
+     * A supplier that gains a session token after the store was built is
+     * the operator's to fix, and the client is told the request failed on
+     * this side: 500 InternalError.  It was an IllegalArgumentException,
+     * which the frontend answers 400.
+     */
+    @Test
+    public void testTempAuthSessionTokenLaterIsServerError() {
+        var calls = new AtomicInteger();
+        // the store checks for a token when it is built
+        Supplier<Credentials> creds = () -> new Credentials("account:user",
+                "key", calls.incrementAndGet() == 1 ? "" : "token");
+
+        try (BlobStore blobStore = tempAuthStore(creds)) {
             assertThatThrownBy(blobStore::list)
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Keystone token");
+                    .isInstanceOfSatisfying(AwsServiceException.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(500);
+                        assertThat(S3Exceptions.errorCode(e))
+                                .isEqualTo("InternalError");
+                    });
         }
 
         assertThat(requests).isEmpty();
+    }
+
+    /**
+     * Keystone scopes a token to a project, so a store without one is
+     * refused when it is built rather than on each request, where it was a
+     * 400 blaming the client.
+     */
+    @Test
+    public void testKeystoneRequiresAProject() {
+        assertThatThrownBy(() -> new OpenStackSwiftBlobStore(
+                Suppliers.ofInstance(new Credentials("user", "password")),
+                endpoint() + "/v3", /*projectName=*/ "", "Default", "Default",
+                /*region=*/ ""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        OpenStackSwiftBlobStore.PROPERTY_PROJECT_NAME);
+
+        assertThat(requests).isEmpty();
+    }
+
+    private BlobStore tempAuthStore(Supplier<Credentials> creds) {
+        return new OpenStackSwiftBlobStore(creds, endpoint() + "/auth/v1.0",
+                "account", "Default", "Default", /*region=*/ "");
     }
 
     private String endpoint() {

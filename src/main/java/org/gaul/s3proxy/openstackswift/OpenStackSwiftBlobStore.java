@@ -280,6 +280,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         this.projectDomainName = projectDomainName;
         this.userDomainName = userDomainName;
         this.region = region;
+        // Refused here, at startup, so that the operator hears of it.  The
+        // same faults found while serving a request are a 500, not the 400
+        // an IllegalArgumentException would answer there.
+        if (isTempAuthEndpoint(endpoint)) {
+            if (!Strings.isNullOrEmpty(creds.get().sessionToken())) {
+                throw new IllegalArgumentException(
+                        tempAuthSessionTokenMessage());
+            }
+        } else if (projectName.isEmpty()) {
+            throw new IllegalArgumentException(projectRequiredMessage());
+        }
     }
 
     private ObjectStorageService objectStorage() {
@@ -313,12 +324,17 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         }
     }
 
+    private static String projectRequiredMessage() {
+        return "Property " + PROPERTY_PROJECT_NAME +
+                " is required to access OpenStack Swift";
+    }
+
+    private String tempAuthSessionTokenMessage() {
+        return "A session token names a Keystone token, which " + endpoint +
+                " does not issue";
+    }
+
     private Token authenticateKeystone(Credentials cred) {
-        if (projectName.isEmpty()) {
-            throw new IllegalArgumentException("Property " +
-                    PROPERTY_PROJECT_NAME +
-                    " is required to access OpenStack Swift");
-        }
         var builder = OSFactory.builderV3().endpoint(endpoint);
         String sessionToken = cred.sessionToken();
         if (Strings.isNullOrEmpty(sessionToken)) {
@@ -366,8 +382,8 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
      */
     private Token authenticateTempAuth(Credentials cred) {
         if (!Strings.isNullOrEmpty(cred.sessionToken())) {
-            throw new IllegalArgumentException("A session token names a " +
-                    "Keystone token, which " + endpoint + " does not issue");
+            // The supplier has gained one since the store was built.
+            throw S3Exceptions.misconfigured(tempAuthSessionTokenMessage());
         }
         // tempauth identifies a user as "account:user".  Accept either the
         // whole thing as the identity or the account named separately, since
