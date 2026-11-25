@@ -185,6 +185,25 @@ public final class AzureBlobStoreTranslateTest {
                 });
     }
 
+    /**
+     * A bucket name S3 takes and Azure does not, e.g. one with a dot, is
+     * S3's InvalidBucketName.  It was an IllegalArgumentException, which the
+     * frontend answers as a bare 400 InvalidRequest.
+     */
+    @Test
+    public void testInvalidResourceNameIsInvalidBucketName() {
+        RuntimeException translated = AzureBlobStore.translate(
+                azureException(400, "InvalidResourceName"),
+                "container.dot", /*key=*/ null);
+
+        assertThat(translated).isInstanceOfSatisfying(S3Exception.class,
+                e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("InvalidBucketName");
+                });
+    }
+
     /** An Azure service error as the SDK would raise it. */
     private static BlobStorageException azureException(int statusCode,
             @Nullable String errorCode) {

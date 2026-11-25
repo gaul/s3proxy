@@ -3309,12 +3309,20 @@ public final class AzureBlobStore implements BlobStore {
                 .getBlobClient(targetBlobName)
                 .getBlockBlobClient();
 
-        var blockList = client.listBlocks(BlockListType.UNCOMMITTED);
-        var uncommittedBlocks = blockList.getUncommittedBlocks();
-
         var blockMap = new java.util.HashMap<String, Long>();
-        for (var block : uncommittedBlocks) {
-            blockMap.put(block.getName(), block.getSizeLong());
+        try {
+            for (var block : client.listBlocks(BlockListType.UNCOMMITTED)
+                    .getUncommittedBlocks()) {
+                blockMap.put(block.getName(), block.getSizeLong());
+            }
+        } catch (BlobStorageException bse) {
+            // No part has been staged and no object holds the key, so Azure
+            // has no blob to list blocks of: every part named is missing,
+            // which the loop below reports as InvalidPart.  Passed on, the
+            // 404 was a 500.
+            if (!BlobErrorCode.BLOB_NOT_FOUND.equals(bse.getErrorCode())) {
+                throw translate(bse, mpu.containerName(), targetBlobName);
+            }
         }
 
         var blockIds = ImmutableList.<String>builder();
@@ -3397,12 +3405,12 @@ public final class AzureBlobStore implements BlobStore {
                     .versionId(committed.getVersionId())
                     .build();
         } catch (BlobStorageException bse) {
-            var errorCode = bse.getErrorCode();
-            if (errorCode.equals(BlobErrorCode.BLOB_NOT_FOUND) ||
-                    errorCode.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
-                throw new IllegalArgumentException(
-                        "Upload not found: container=" + mpu.containerName() +
-                        ", key=" + targetBlobName);
+            if (isAbsent(bse)) {
+                // The stub was there a moment ago, so the container has gone
+                // since, and the upload with it.  S3 says NoSuchUpload, where
+                // an IllegalArgumentException reached the client as a bare
+                // 400 InvalidRequest.
+                throw S3Exceptions.noSuchUpload(nonce);
             } else if (bse.getStatusCode() == 409 &&
                     options.getRequestConditions() != null) {
                 // Azure reports an unmet If-None-Match: * as 409
@@ -3410,8 +3418,15 @@ public final class AzureBlobStore implements BlobStore {
                 // asked for the condition it is a failed precondition.
                 throw translate(bse, mpu.containerName(), targetBlobName);
             } else if (bse.getStatusCode() == 409) {
-                throw new IllegalArgumentException(
-                        "Conflict during commit: " + bse.getMessage(), bse);
+                // Another operation on the blob is in the way, a snapshot
+                // being taken, say.  (A lease is 412 LeaseIdMissing.)  S3's
+                // word for a write that lost to another operation is
+                // OperationAborted, a 409 that says to try again, where a
+                // bare 400 said the request was wrong.
+                throw S3Exceptions.withCode(409, "OperationAborted",
+                        "A conflicting conditional operation is currently" +
+                        " in progress against this resource. Try again.",
+                        bse);
             } else if (bse.getStatusCode() == 412) {
                 throw translateWrite(bse, mpu.containerName(), targetBlobName,
                         request.ifMatch());
@@ -4032,8 +4047,12 @@ public final class AzureBlobStore implements BlobStore {
             // would report the caller's own bad digest as a server error.
             return S3Exceptions.fromStatusCode(400, bse);
         } else if (code.equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
-            return new IllegalArgumentException(
-                    "Invalid container name", bse);
+            // Azure names containers more narrowly than S3 names buckets: no
+            // dots, no two hyphens in a row.  S3 refuses a name it will not
+            // take with InvalidBucketName, where an IllegalArgumentException
+            // reached the client as a bare 400 InvalidRequest.
+            return S3Exceptions.withCode(400, "InvalidBucketName",
+                    "The specified bucket is not valid.", bse);
         } else if (code.equals(
                 BlobErrorCode.BLOB_USES_CUSTOMER_SPECIFIED_ENCRYPTION)) {
             // A blob written out of band with an Azure customer-provided key
