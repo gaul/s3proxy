@@ -729,7 +729,8 @@ public final class HandlerFuzzTest {
             signed = signV4(builder.build(), request.body(), signing, query);
             // The aws-chunked encoding is produced as it is read
             body = signed.payload().isPresent() ?
-                    signed.payload().get().newStream().readAllBytes() :
+                    signed.payload().orElseThrow().newStream()
+                            .readAllBytes() :
                     request.body();
         } catch (IOException ioe) {
             throw new UncheckedIOException(ioe);
@@ -823,7 +824,7 @@ public final class HandlerFuzzTest {
                     c == '_' || c == '~' || (path && c == '/')) {
                 encoded.append((char) c);
             } else {
-                encoded.append('%').append(String.format("%02X", c));
+                encoded.append('%').append("%02X".formatted(c));
             }
         }
         return encoded.toString();
