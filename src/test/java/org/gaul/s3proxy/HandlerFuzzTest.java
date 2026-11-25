@@ -49,7 +49,6 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider;
-import com.code_intelligence.jazzer.junit.FuzzTest;
 import com.google.common.base.Strings;
 
 import org.eclipse.jetty.server.LocalConnector;
@@ -60,9 +59,13 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.AppenderBase;
@@ -104,16 +107,25 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * such as a copy source naming a key and version an answer gave, a range,
  * a date near now, or the digest of the body itself.
  *
- * <p>Without JAZZER_FUZZ these run the saved inputs only.  To fuzz one
- * target, which is all Jazzer fuzzes in a run:
- * {@code JAZZER_FUZZ=1 mvn test -Dtest=HandlerFuzzTest#anonymousRequest
- * -Djazzer.max_duration=10m -Dsurefire.timeout=0}; without the last,
- * Surefire kills a run at five minutes and Jazzer saves the input it was
- * on as though it had failed.  A finding is saved under
- * src/test/resources/.../HandlerFuzzTestInputs, where every later test run
+ * <p>This class is the harness and its own tests; the targets that fuzz
+ * it are AnonymousHandlerFuzzTest and SignedHandlerFuzzTest.  Without
+ * JAZZER_FUZZ they run the saved inputs only.  Every target is tagged
+ * "fuzz", and one command fuzzes them all, each in a JVM of its own and as
+ * many at once as there are cores:
+ * {@code JAZZER_FUZZ=1 mvn test -Dgroups=fuzz -DforkCount=1C
+ * -DreuseForks=false -Djazzer.max_duration=10m -Dsurefire.timeout=0}.
+ * Jazzer fuzzes one target in a JVM, so the forks must not be reused; and
+ * without the last, Surefire kills a run at five minutes and Jazzer saves
+ * the input it was on as though it had failed.  To fuzz one target, name
+ * it: {@code -Dtest=SignedHandlerFuzzTest}.  A finding is saved under
+ * src/test/resources/.../&lt;target&gt;Inputs, where every later test run
  * replays it; Maven copies it to target/test-classes and does not remove
  * it from there when it is deleted.  The corpus grows in .cifuzz-corpus.
+ *
+ * <p>The tests of the harness share the signed target's store and reset
+ * it, so they take turns.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 public final class HandlerFuzzTest {
     private static final String IDENTITY = "identity";
     private static final String CREDENTIAL = "credential";
@@ -248,17 +260,85 @@ public final class HandlerFuzzTest {
     private static final Queue<Throwable> UNANTICIPATED =
             new ConcurrentLinkedQueue<>();
 
-    private static BlobStore anonymousStore;
-    private static S3Proxy anonymous;
-    private static LocalConnector anonymousConnector;
-    private static BlobStore signedStore;
-    private static S3Proxy signed;
-    private static LocalConnector signedConnector;
+    /** The signed target, which the tests of the harness itself use. */
+    private static Target signed;
 
-    @BeforeAll
-    static void setUp() throws Exception {
-        var jettyLogger = (ch.qos.logback.classic.Logger)
-                LoggerFactory.getLogger(S3ProxyHandlerJetty.class);
+    /**
+     * A proxy over a transient store, reached through an in-memory
+     * connector, for one fuzz target.  Each target is a class of its own,
+     * AnonymousHandlerFuzzTest and SignedHandlerFuzzTest, since Jazzer
+     * fuzzes one target in a JVM and Surefire gives JVMs to classes.
+     */
+    static final class Target {
+        private final BlobStore blobStore;
+        private final S3Proxy proxy;
+        private final LocalConnector connector;
+        private final boolean signs;
+
+        private Target(BlobStore blobStore, S3Proxy proxy,
+                LocalConnector connector, boolean signs) {
+            this.blobStore = blobStore;
+            this.proxy = proxy;
+            this.connector = connector;
+            this.signs = signs;
+        }
+
+        /**
+         * A proxy that authenticates V2 and V4 when signs, and one that
+         * authenticates nothing otherwise.
+         */
+        static Target start(boolean signs) throws Exception {
+            collectUnanticipated();
+            BlobStore blobStore = TestUtils.createTransientBlobStore();
+            S3Proxy proxy = S3Proxy.builder()
+                    .stopTimeout(0)
+                    .blobStore(blobStore)
+                    .awsAuthentication(signs ?
+                            AuthenticationType.AWS_V2_OR_V4 :
+                            AuthenticationType.NONE, IDENTITY, CREDENTIAL)
+                    .endpoint(URI.create("http://127.0.0.1:0"))
+                    .build();
+            LocalConnector connector = proxy.addLocalConnector();
+            proxy.start();
+            while (!proxy.getState().equals("STARTED")) {
+                Thread.sleep(10);
+            }
+            return new Target(blobStore, proxy, connector, signs);
+        }
+
+        void stop() throws Exception {
+            proxy.stop();
+        }
+
+        /** Sends the requests of one input. */
+        void exchange(FuzzedDataProvider data) throws Exception {
+            HandlerFuzzTest.exchange(blobStore, connector, data, signs);
+        }
+    }
+
+    private static boolean collecting;
+
+    /** Has the Jetty handler's 400s from foreign code collected. */
+    private static synchronized void collectUnanticipated()
+            throws InterruptedException {
+        if (collecting) {
+            return;
+        }
+        // Test classes start concurrently, and while one is initializing
+        // logging SLF4J hands the others stand-in loggers, which logback's
+        // appenders cannot be added to.
+        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
+        for (int i = 0; !(factory instanceof LoggerContext) && i < 500;
+                ++i) {
+            Thread.sleep(10);
+            factory = LoggerFactory.getILoggerFactory();
+        }
+        if (!(factory instanceof LoggerContext context)) {
+            throw new IllegalStateException("logback never initialized: " +
+                    factory);
+        }
+        collecting = true;
+        var jettyLogger = context.getLogger(S3ProxyHandlerJetty.class);
         jettyLogger.setLevel(Level.DEBUG);
         jettyLogger.setAdditive(false);
         var appender = new AppenderBase<ILoggingEvent>() {
@@ -280,43 +360,20 @@ public final class HandlerFuzzTest {
                 }
             }
         };
-        appender.setContext(jettyLogger.getLoggerContext());
+        appender.setContext(context);
         appender.start();
         jettyLogger.addAppender(appender);
+    }
 
-        anonymousStore = TestUtils.createTransientBlobStore();
-        anonymous = build(anonymousStore, AuthenticationType.NONE);
-        anonymousConnector = anonymous.addLocalConnector();
-        start(anonymous);
-        signedStore = TestUtils.createTransientBlobStore();
-        signed = build(signedStore, AuthenticationType.AWS_V2_OR_V4);
-        signedConnector = signed.addLocalConnector();
-        start(signed);
+    @BeforeAll
+    static void setUp() throws Exception {
+        signed = Target.start(/*signs=*/ true);
     }
 
     @AfterAll
     static void tearDown() throws Exception {
-        for (S3Proxy proxy : new S3Proxy[] {anonymous, signed}) {
-            if (proxy != null) {
-                proxy.stop();
-            }
-        }
-    }
-
-    private static S3Proxy build(BlobStore blobStore,
-            AuthenticationType type) {
-        return S3Proxy.builder()
-                .stopTimeout(0)
-                .blobStore(blobStore)
-                .awsAuthentication(type, IDENTITY, CREDENTIAL)
-                .endpoint(URI.create("http://127.0.0.1:0"))
-                .build();
-    }
-
-    private static void start(S3Proxy proxy) throws Exception {
-        proxy.start();
-        while (!proxy.getState().equals("STARTED")) {
-            Thread.sleep(10);
+        if (signed != null) {
+            signed.stop();
         }
     }
 
@@ -339,16 +396,6 @@ public final class HandlerFuzzTest {
         }
     }
 
-    @FuzzTest
-    void anonymousRequest(FuzzedDataProvider data) throws Exception {
-        exchange(anonymousStore, anonymousConnector, data, /*signs=*/ false);
-    }
-
-    @FuzzTest
-    void signedRequest(FuzzedDataProvider data) throws Exception {
-        exchange(signedStore, signedConnector, data, /*signs=*/ true);
-    }
-
     /**
      * Every way the signed target signs gets past authentication, read and
      * write, with a subresource and a header the signature has to cover;
@@ -358,7 +405,7 @@ public final class HandlerFuzzTest {
      */
     @Test
     void testEverySigningAuthenticates() throws Exception {
-        reset(signedStore);
+        reset(signed.blobStore);
         byte[] content = "content".getBytes(StandardCharsets.UTF_8);
         for (Signing signing : Signing.values()) {
             if (signing == Signing.NONE) {
@@ -407,7 +454,7 @@ public final class HandlerFuzzTest {
      */
     @Test
     void testAnswersFeedLaterRequests() throws Exception {
-        reset(signedStore);
+        reset(signed.blobStore);
         var captured = new Captured();
         String key = "/" + BUCKET + "/upload";
         assertThat(capture(captured, new Request("POST", key,
@@ -455,7 +502,7 @@ public final class HandlerFuzzTest {
      */
     @Test
     void testBuiltBodiesSucceed() throws Exception {
-        reset(signedStore);
+        reset(signed.blobStore);
         String bucket = "/" + BUCKET;
         String fit = "fit";
         String md5 = "Content-MD5";
@@ -504,7 +551,7 @@ public final class HandlerFuzzTest {
      */
     @Test
     void testComposedValuesHold() throws Exception {
-        reset(signedStore);
+        reset(signed.blobStore);
         byte[] content = "content".getBytes(StandardCharsets.UTF_8);
         String object = "/" + BUCKET + "/digested";
         // a request may carry one checksum, beside its Content-MD5
@@ -617,7 +664,7 @@ public final class HandlerFuzzTest {
     }
 
     private static String answer(Wire wire) throws Exception {
-        ByteBuffer response = signedConnector.getResponse(wire.buffer(),
+        ByteBuffer response = signed.connector.getResponse(wire.buffer(),
                 false, 10, TimeUnit.SECONDS);
         assertThat(response).as("%s", wire.head()).isNotNull();
         return StandardCharsets.ISO_8859_1.decode(response).toString();
