@@ -1049,8 +1049,13 @@ public class S3ProxyHandler {
                             ", Signature=" + signature;
                     presignedUrl = true;
                 } else {
-                    throw new IllegalArgumentException("unknown algorithm: " +
-                            algorithm);
+                    // The client's to correct, and S3 says which one it
+                    // signs with; an IllegalArgumentException answered a
+                    // bare InvalidRequest.
+                    throw new S3ProxyException(
+                            S3ErrorCode.AUTHORIZATION_QUERY_PARAMETERS_ERROR,
+                            "X-Amz-Algorithm only supports" +
+                            " \"AWS4-HMAC-SHA256\"");
                 }
 
                 try {

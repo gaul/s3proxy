@@ -1181,6 +1181,24 @@ public final class EncryptedBlobStoreTest {
     }
 
     /**
+     * A continuation token this store never issued is refused as S3
+     * refuses one, InvalidArgument.  It was an IllegalArgumentException,
+     * which reached the client as a bare InvalidRequest.
+     */
+    @Test
+    public void testListForeignContinuationTokenIsInvalidArgument() {
+        assertThatThrownBy(() -> encryptedBlobStore.list(
+                ListObjectsV2Request.builder().bucket(containerName)
+                        .delimiter(".").continuationToken("foreign")
+                        .build()))
+                .isInstanceOfSatisfying(AwsServiceException.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(S3Exceptions.errorCode(e))
+                            .isEqualTo("InvalidArgument");
+                });
+    }
+
+    /**
      * A listed size is read from each object's own padding, and a read the
      * backend refuses describes that one object: S3 answers 400 for one
      * resting under a customer key and 404 for one deleted since the page

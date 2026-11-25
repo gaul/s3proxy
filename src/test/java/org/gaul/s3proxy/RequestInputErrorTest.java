@@ -1,0 +1,101 @@
+/*
+ * Copyright 2014-2026 Andrew Gaul <andrew@gaul.org>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.gaul.s3proxy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
+
+import org.gaul.s3proxy.auth.AuthenticationType;
+import org.gaul.s3proxy.blobstore.BlobStore;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Requests refused for what they asked are answered with the code S3 gives
+ * them.  Each was refused by an IllegalArgumentException, which the Jetty
+ * handler answers as a bare 400 InvalidRequest: no code a client can act
+ * on, and for a limit of S3Proxy's own, a status that blamed the client.
+ */
+public final class RequestInputErrorTest {
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+
+    /** A presigned URL signed with an algorithm S3Proxy does not verify. */
+    @Test
+    public void testUnknownAlgorithm() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.AWS_V2_OR_V4);
+        try {
+            HttpResponse<String> response = get(proxy, "/bucket" +
+                    "?X-Amz-Algorithm=AWS4-ECDSA-P256-SHA256" +
+                    "&X-Amz-Credential=identity%2F20261125%2Fus-east-1" +
+                    "%2Fs3%2Faws4_request" +
+                    "&X-Amz-Date=20261125T000000Z&X-Amz-Expires=60" +
+                    "&X-Amz-SignedHeaders=host&X-Amz-Signature=00");
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(response.body()).contains(
+                    "<Code>AuthorizationQueryParametersError</Code>");
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    /**
+     * S3 takes any delimiter; the nio2 stores group only on "/", which is
+     * their limit and not the request's fault.
+     */
+    @Test
+    public void testDelimiterTheStoreCannotGroupOn() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.NONE);
+        try {
+            for (String query : List.of("?delimiter=x",
+                    "?list-type=2&delimiter=x")) {
+                HttpResponse<String> response = get(proxy, "/bucket" + query);
+                assertThat(response.statusCode()).as(query).isEqualTo(501);
+                assertThat(response.body()).as(query)
+                        .contains("<Code>NotImplemented</Code>");
+            }
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    private static S3Proxy start(AuthenticationType type) throws Exception {
+        BlobStore blobStore = TestUtils.createTransientBlobStore();
+        blobStore.createContainer("bucket");
+        S3Proxy proxy = S3Proxy.builder()
+                .stopTimeout(0)
+                .blobStore(blobStore)
+                .awsAuthentication(type, "identity", "credential")
+                .endpoint(URI.create("http://127.0.0.1:0"))
+                .build();
+        proxy.start();
+        while (!proxy.getState().equals("STARTED")) {
+            Thread.sleep(10);
+        }
+        return proxy;
+    }
+
+    private HttpResponse<String> get(S3Proxy proxy, String pathAndQuery)
+            throws Exception {
+        return httpClient.send(HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:" + proxy.getPort() + pathAndQuery))
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+}

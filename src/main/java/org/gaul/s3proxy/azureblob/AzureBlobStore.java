@@ -2911,7 +2911,9 @@ public final class AzureBlobStore implements BlobStore {
         var userMetadata = withoutReservedMetadata(request.metadata());
         for (var key : userMetadata.keySet()) {
             if (!isValidMetadataKey(key)) {
-                throw new IllegalArgumentException(
+                // Azure names metadata as C# identifiers, which S3 does
+                // not; the request names one this backend cannot store.
+                throw S3Exceptions.invalidArgument(
                         "Invalid metadata key: " + key);
             }
         }

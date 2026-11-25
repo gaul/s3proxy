@@ -28,6 +28,8 @@ import jakarta.servlet.http.HttpServletResponse;
  */
 public enum S3ErrorCode {
     ACCESS_DENIED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
+    AUTHORIZATION_QUERY_PARAMETERS_ERROR(HttpServletResponse.SC_BAD_REQUEST,
+            "Query-string authentication parameters are malformed."),
     BAD_DIGEST(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
     BUCKET_ALREADY_EXISTS(HttpServletResponse.SC_FORBIDDEN,
             "The requested bucket name is not available." +

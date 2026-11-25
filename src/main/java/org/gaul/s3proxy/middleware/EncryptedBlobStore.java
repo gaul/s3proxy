@@ -284,7 +284,8 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         String token = request.continuationToken();
         if (token != null) {
             if (!token.startsWith(GROUPING_TOKEN_PREFIX)) {
-                throw new IllegalArgumentException(
+                // as S3 answers a token it never issued
+                throw S3Exceptions.invalidArgument(
                         "The continuation token provided is incorrect");
             }
             after = new String(Base64.getUrlDecoder().decode(

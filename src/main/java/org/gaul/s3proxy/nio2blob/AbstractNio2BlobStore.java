@@ -508,7 +508,11 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
         if ("".equals(delimiter)) {
             delimiter = null;
         } else if (delimiter != null && !delimiter.equals("/")) {
-            throw new IllegalArgumentException("Delimiters other than / not supported");
+            // S3 takes any delimiter, so this store's limit is no fault of
+            // the request: NotImplemented, rather than the bare 400 an
+            // IllegalArgumentException answered.
+            throw S3Exceptions.notImplemented(
+                    "Delimiters other than / are not supported");
         }
 
         var prefix = request.prefix();
