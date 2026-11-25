@@ -97,22 +97,10 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 handler.releasePreAuthBody(request);
             }
             handler.drainUnreadBodyAfterResponse(request, response);
-        } catch (IllegalArgumentException iae) {
-            logger.debug("IllegalArgumentException:", iae);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            logger.debug("{}:", e.getClass().getSimpleName(), e);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST,
-                    iae.getMessage());
-            return;
-        } catch (IllegalStateException ise) {
-            // google-cloud-storage uses a different exception
-            String message = ise.getMessage();
-            if (message != null && message.startsWith("PreconditionFailed")) {
-                sendErrorResponse(request, response,
-                        S3ErrorCode.PRECONDITION_FAILED);
-                return;
-            }
-            logger.debug("IllegalStateException:", ise);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
-                    ise.getMessage());
+                    e.getMessage());
             return;
         } catch (IOException ioe) {
             var cause = Throwables.getCausalChain(ioe).stream()
