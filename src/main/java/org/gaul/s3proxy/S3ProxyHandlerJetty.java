@@ -98,9 +98,17 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             }
             handler.drainUnreadBodyAfterResponse(request, response);
         } catch (IllegalArgumentException | IllegalStateException e) {
-            logger.debug("{}:", e.getClass().getSimpleName(), e);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST,
-                    e.getMessage());
+            // Every refusal of what a request asked throws an S3 error of
+            // its own, and the parsers that throw these are caught where
+            // they are called.  One that arrives here is a fault on this
+            // side -- a precondition S3Proxy or a library broke, or data a
+            // backend returned malformed -- and not the client's.  These
+            // were answered 400, which blamed the client and kept the fault
+            // out of the log.
+            logger.warn("Unexpected {} answering {} {}",
+                    e.getClass().getSimpleName(), request.getMethod(),
+                    request.getRequestURI(), e);
+            sendErrorResponse(request, response, S3ErrorCode.INTERNAL_ERROR);
             return;
         } catch (IOException ioe) {
             var cause = Throwables.getCausalChain(ioe).stream()

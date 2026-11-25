@@ -26,13 +26,17 @@ import java.util.List;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 
 /**
  * Requests refused for what they asked are answered with the code S3 gives
  * them.  Each was refused by an IllegalArgumentException, which the Jetty
- * handler answers as a bare 400 InvalidRequest: no code a client can act
+ * handler answered as a bare 400 InvalidRequest: no code a client can act
  * on, and for a limit of S3Proxy's own, a status that blamed the client.
+ * The handler now answers one 500.
  */
 public final class RequestInputErrorTest {
     private final HttpClient httpClient = HttpClient.newHttpClient();
@@ -76,9 +80,44 @@ public final class RequestInputErrorTest {
         }
     }
 
+    /**
+     * Refusals of a request's input are S3 errors of their own, so an
+     * IllegalArgumentException or IllegalStateException that reaches the
+     * handler is a fault on this side: a 500, not the client's 400.
+     */
+    @Test
+    public void testStrayIllegalExceptionIsServerError() throws Exception {
+        for (RuntimeException e : List.of(
+                new IllegalArgumentException("stray"),
+                new IllegalStateException("stray"))) {
+            BlobStore blobStore = new ForwardingBlobStore(
+                    TestUtils.createTransientBlobStore()) {
+                @Override
+                public ListBucketsResponse list() {
+                    throw e;
+                }
+            };
+            S3Proxy proxy = start(blobStore, AuthenticationType.NONE);
+            try {
+                HttpResponse<String> response = get(proxy, "/");
+                assertThat(response.statusCode()).as(e.toString())
+                        .isEqualTo(500);
+                assertThat(response.body()).as(e.toString())
+                        .contains("<Code>InternalError</Code>");
+            } finally {
+                proxy.stop();
+            }
+        }
+    }
+
     private static S3Proxy start(AuthenticationType type) throws Exception {
         BlobStore blobStore = TestUtils.createTransientBlobStore();
         blobStore.createContainer("bucket");
+        return start(blobStore, type);
+    }
+
+    private static S3Proxy start(BlobStore blobStore, AuthenticationType type)
+            throws Exception {
         S3Proxy proxy = S3Proxy.builder()
                 .stopTimeout(0)
                 .blobStore(blobStore)

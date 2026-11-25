@@ -121,7 +121,7 @@ public final class AzureBearerTokenTest {
      * client is told the request failed on this side: 500 InternalError,
      * found along the cause chain, since the Azure client wraps what its
      * credential throws.  It was an IllegalStateException, which the
-     * frontend answers 400 when it arrives unwrapped.
+     * frontend answered 400 when it arrived unwrapped.
      */
     @Test
     public void testSupplierWithoutTokenIsServerError() {

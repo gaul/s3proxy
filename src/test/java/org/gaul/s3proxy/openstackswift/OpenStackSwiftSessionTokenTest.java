@@ -115,7 +115,7 @@ public final class OpenStackSwiftSessionTokenTest {
      * A supplier that gains a session token after the store was built is
      * the operator's to fix, and the client is told the request failed on
      * this side: 500 InternalError.  It was an IllegalArgumentException,
-     * which the frontend answers 400.
+     * which the frontend answered 400.
      */
     @Test
     public void testTempAuthSessionTokenLaterIsServerError() {

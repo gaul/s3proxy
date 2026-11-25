@@ -188,7 +188,7 @@ public final class AzureBlobStoreTranslateTest {
     /**
      * A bucket name S3 takes and Azure does not, e.g. one with a dot, is
      * S3's InvalidBucketName.  It was an IllegalArgumentException, which the
-     * frontend answers as a bare 400 InvalidRequest.
+     * frontend answered as a bare 400 InvalidRequest.
      */
     @Test
     public void testInvalidResourceNameIsInvalidBucketName() {
