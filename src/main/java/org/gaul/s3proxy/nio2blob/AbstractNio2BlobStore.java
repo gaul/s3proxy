@@ -1609,32 +1609,31 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 // REPLACE_EXISTING, whereas link(2) fails if it exists.  The
                 // link shares the inode, so the xattrs and permissions
                 // already written to tmpPath carry over.
-                publishLock.writeLock().lock();
+                //
+                // versionLock before publishLock, the order publish() takes
+                // them in.
+                versionLock.lock();
                 try {
-                    versionLock.lock();
+                    publishLock.writeLock().lock();
                     try {
                         intoParent(tmpPath, path,
                                 () -> Files.createLink(path, tmpPath));
-                    } finally {
-                        versionLock.unlock();
-                    }
-                } catch (FileAlreadyExistsException faee) {
-                    throw returnResponseException(412);
-                } catch (UnsupportedOperationException uoe) {
-                    // a filesystem without hard links leaves only a check
-                    // followed by a write, which cannot be made atomic
-                    if (Files.exists(path)) {
+                    } catch (FileAlreadyExistsException faee) {
                         throw returnResponseException(412);
-                    }
-                    versionLock.lock();
-                    try {
+                    } catch (UnsupportedOperationException uoe) {
+                        // a filesystem without hard links leaves only a
+                        // check followed by a write, which cannot be made
+                        // atomic
+                        if (Files.exists(path)) {
+                            throw returnResponseException(412);
+                        }
                         intoParent(tmpPath, path, () -> Files.move(tmpPath,
                                 path, StandardCopyOption.ATOMIC_MOVE));
                     } finally {
-                        versionLock.unlock();
+                        publishLock.writeLock().unlock();
                     }
                 } finally {
-                    publishLock.writeLock().unlock();
+                    versionLock.unlock();
                 }
                 // Nothing current was displaced: the condition held only
                 // because the key had none.  It may still have a null
