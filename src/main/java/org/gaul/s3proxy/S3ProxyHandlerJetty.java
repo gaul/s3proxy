@@ -239,6 +239,16 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         // AccessDenied error document rather than a bare 403 status.
         case HttpServletResponse.SC_FORBIDDEN -> sendErrorResponse(
                 request, response, S3ErrorCode.ACCESS_DENIED);
+        // These were answered with the status alone and no body, which an
+        // S3 client reports as an unknown error.
+        case HttpServletResponse.SC_INTERNAL_SERVER_ERROR ->
+            sendErrorResponse(request, response, S3ErrorCode.INTERNAL_ERROR);
+        case HttpServletResponse.SC_NOT_IMPLEMENTED -> sendErrorResponse(
+                request, response, S3ErrorCode.NOT_IMPLEMENTED);
+        case HttpServletResponse.SC_SERVICE_UNAVAILABLE ->
+            handler.sendSimpleErrorResponse(request, response,
+                    "ServiceUnavailable", status,
+                    "Service is unable to handle request.", Map.of());
         default -> {
             logger.debug("AwsServiceException:", ase);
             response.setStatus(status);

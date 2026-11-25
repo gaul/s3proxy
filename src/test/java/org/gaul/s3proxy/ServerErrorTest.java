@@ -22,6 +22,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
@@ -98,6 +99,24 @@ public final class ServerErrorTest {
 
         assertThat(response.statusCode()).isEqualTo(501);
         assertThat(warningsFor(refusal)).isZero();
+    }
+
+    /**
+     * A backend failure that carries only a status, no S3 error code, is
+     * answered with S3's document for that status.  It was the status alone
+     * with no body, which an S3 client reports as an unknown error.
+     */
+    @Test
+    public void testStatusWithoutCodeIsAnErrorDocument() throws Exception {
+        for (var entry : Map.of(500, "InternalError", 501, "NotImplemented",
+                503, "ServiceUnavailable").entrySet()) {
+            HttpResponse<String> response = listFailingWith(
+                    () -> S3Exceptions.fromStatusCode(entry.getKey()));
+
+            assertThat(response.statusCode()).isEqualTo(entry.getKey());
+            assertThat(response.body()).as(entry.getValue())
+                    .contains("<Code>" + entry.getValue() + "</Code>");
+        }
     }
 
     private long warningsFor(Throwable failure) {

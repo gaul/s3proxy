@@ -239,6 +239,29 @@ public final class AzureBlobStoreTest {
     }
 
     /**
+     * Encryption Azure cannot honor -- a customer key, KMS -- is refused
+     * NotImplemented by name, before dialing the service.  It was a bare
+     * 501, which reached the client with no body.
+     */
+    @Test
+    public void testUnsupportedEncryptionIsNotImplemented() {
+        AzureBlobStore azure = store(/*versioning=*/ false);
+        for (var request : List.of(
+                PutObjectRequest.builder().bucket("container").key("key")
+                        .serverSideEncryption("aws:kms").build(),
+                PutObjectRequest.builder().bucket("container").key("key")
+                        .sseCustomerAlgorithm("AES256").build())) {
+            assertThatThrownBy(() -> azure.putBlob(request,
+                    new ByteArrayInputStream(new byte[0])))
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(501);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("NotImplemented");
+                    });
+        }
+    }
+
+    /**
      * S3 refuses If-Match on a delete naming a version -- 501 NotImplemented,
      * whether or not the ETag matches -- so the store refuses it too, before
      * dialing the service, though Azure itself could judge the condition

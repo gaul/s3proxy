@@ -1622,7 +1622,11 @@ public final class AzureBlobStore implements BlobStore {
         if (customerAlgorithm != null || customerKey != null ||
                 customerKeyMD5 != null || kmsKeyId != null ||
                 (algorithm != null && !"AES256".equals(algorithm))) {
-            throw S3Exceptions.fromStatusCode(501);
+            // NotImplemented by name: a bare 501 reached the client with
+            // no body, which it reports as an unknown error.
+            throw S3Exceptions.notImplemented("This backend supports only" +
+                    " server-side encryption with Amazon S3 managed keys" +
+                    " (AES256).");
         }
     }
 
