@@ -31,6 +31,7 @@ import com.code_intelligence.jazzer.junit.FuzzTest;
 import org.eclipse.jetty.server.LocalConnector;
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,13 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  * one Jetty cannot parse, nor one kept waiting most of a second, nor a 400
  * from an exception that no S3Proxy code threw.
  *
+ * <p>Each input starts from the same store, emptied and seeded again, and
+ * sends a short sequence of requests to it.  A request that fails only
+ * after what an earlier one left behind is then found within one input,
+ * whose saved copy reproduces it alone; with one store for the whole run,
+ * a finding depended on inputs long gone, and each input ran against more
+ * accumulated state, which slowed the run by half within minutes.
+ *
  * <p>Without JAZZER_FUZZ these run the saved inputs only.  To fuzz one
  * target, which is all Jazzer fuzzes in a run:
  * {@code JAZZER_FUZZ=1 mvn test -Dtest=HandlerFuzzTest#anonymousRequest
@@ -61,7 +69,12 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
  */
 public final class HandlerFuzzTest {
     private static final String BUCKET = "fuzz";
+    private static final List<String> SEEDED_KEYS = List.of("key", "dir/key");
     private static final long SLOW_MILLIS = 900;
+    /** Enough for a write followed by a read or a write it conflicts with. */
+    private static final int MAX_REQUESTS = 3;
+    /** The body of a request other than the last, which takes the rest. */
+    private static final int MAX_EARLIER_BODY = 256;
 
     private static final List<String> METHODS = List.of(
             "GET", "PUT", "POST", "HEAD", "DELETE", "OPTIONS");
@@ -129,8 +142,10 @@ public final class HandlerFuzzTest {
     private static final Queue<Throwable> UNANTICIPATED =
             new ConcurrentLinkedQueue<>();
 
+    private static BlobStore anonymousStore;
     private static S3Proxy anonymous;
     private static LocalConnector anonymousConnector;
+    private static BlobStore signedStore;
     private static S3Proxy signed;
     private static LocalConnector signedConnector;
 
@@ -163,10 +178,12 @@ public final class HandlerFuzzTest {
         appender.start();
         jettyLogger.addAppender(appender);
 
-        anonymous = build(AuthenticationType.NONE);
+        anonymousStore = TestUtils.createTransientBlobStore();
+        anonymous = build(anonymousStore, AuthenticationType.NONE);
         anonymousConnector = anonymous.addLocalConnector();
         start(anonymous);
-        signed = build(AuthenticationType.AWS_V2_OR_V4);
+        signedStore = TestUtils.createTransientBlobStore();
+        signed = build(signedStore, AuthenticationType.AWS_V2_OR_V4);
         signedConnector = signed.addLocalConnector();
         start(signed);
     }
@@ -180,15 +197,8 @@ public final class HandlerFuzzTest {
         }
     }
 
-    private static S3Proxy build(AuthenticationType type) {
-        BlobStore blobStore = TestUtils.createTransientBlobStore();
-        blobStore.createContainer(BUCKET);
-        for (String key : List.of("key", "dir/key")) {
-            blobStore.putBlob(PutObjectRequest.builder()
-                    .bucket(BUCKET).key(key).build(),
-                    new ByteArrayInputStream(
-                            "content".getBytes(StandardCharsets.UTF_8)));
-        }
+    private static S3Proxy build(BlobStore blobStore,
+            AuthenticationType type) {
         return S3Proxy.builder()
                 .stopTimeout(0)
                 .blobStore(blobStore)
@@ -204,18 +214,56 @@ public final class HandlerFuzzTest {
         }
     }
 
+    /**
+     * Empties the store and seeds it again.  Every bucket an input can
+     * create is one the store lists, and the nio2 stores keep all of a
+     * bucket's state -- its versions, uploads, ACLs and configuration --
+     * beneath its directory, which deleteContainer removes whole.
+     */
+    private static void reset(BlobStore blobStore) {
+        for (var bucket : blobStore.list().buckets()) {
+            blobStore.deleteContainer(bucket.name());
+        }
+        blobStore.createContainer(BUCKET);
+        for (String key : SEEDED_KEYS) {
+            blobStore.putBlob(PutObjectRequest.builder()
+                    .bucket(BUCKET).key(key).build(),
+                    new ByteArrayInputStream(
+                            "content".getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
     @FuzzTest
     void anonymousRequest(FuzzedDataProvider data) throws Exception {
-        send(anonymousConnector, data);
+        exchange(anonymousStore, anonymousConnector, data);
     }
 
     @FuzzTest
     void signedRequest(FuzzedDataProvider data) throws Exception {
-        send(signedConnector, data);
+        exchange(signedStore, signedConnector, data);
     }
 
+    private static void exchange(BlobStore blobStore,
+            LocalConnector connector, FuzzedDataProvider data)
+            throws Exception {
+        reset(blobStore);
+        var earlier = new StringBuilder();
+        int requests = data.consumeInt(1, MAX_REQUESTS);
+        for (int i = 1; i <= requests; ++i) {
+            byte[] body = i == requests ? null :
+                    data.consumeBytes(data.consumeInt(0, MAX_EARLIER_BODY));
+            send(connector, data, body, earlier);
+        }
+    }
+
+    /**
+     * Sends one request and judges its answer.  A null body takes the rest
+     * of the input.  Requests sent earlier in the input are recorded in
+     * earlier, so that a failure names the state it arose from.
+     */
     private static void send(LocalConnector connector,
-            FuzzedDataProvider data) throws Exception {
+            FuzzedDataProvider data, byte @Nullable [] earlierBody,
+            StringBuilder earlier) throws Exception {
         var request = new StringBuilder();
         String method = data.pickValue(METHODS);
         request.append(method).append(" /");
@@ -243,9 +291,13 @@ public final class HandlerFuzzTest {
                     .append(headerValue(data.consumeString(60)))
                     .append("\r\n");
         }
-        byte[] body = data.consumeRemainingAsBytes();
+        byte[] body = earlierBody != null ? earlierBody :
+                data.consumeRemainingAsBytes();
         request.append("Content-Length: ").append(body.length)
                 .append("\r\n\r\n");
+        String described = (earlier.isEmpty() ? "" :
+                "after:\n" + earlier + "the request:\n") +
+                request + "<" + body.length + " byte body>";
 
         byte[] head = request.toString().getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(head.length + body.length)
@@ -262,32 +314,33 @@ public final class HandlerFuzzTest {
             // a header value holding a byte no header may
             throw new AssertionError((millis >= 10_000 ?
                     "no answer within 10 s" : "no answer Jetty could parse") +
-                    " to:\n" + request + "<" + body.length + " byte body>");
+                    " to:\n" + described);
         }
         // The transient store answers in microseconds; a request kept
         // waiting most of a second is waiting on a timeout, not on work.
         if (millis > SLOW_MILLIS) {
             throw new AssertionError("answered only after " + millis +
-                    " ms:\n" + request + "<" + body.length + " byte body>");
+                    " ms:\n" + described);
         }
         String status = statusLine(response);
         // "HTTP/1.1 500 Server Error"
         String[] parts = status.split(" ", 3);
         if (parts.length < 2) {
             throw new AssertionError("no status line, got \"" + status +
-                    "\" for:\n" + request);
+                    "\" for:\n" + described);
         }
         int code = Integer.parseInt(parts[1]);
         Throwable unanticipated = UNANTICIPATED.poll();
         if (unanticipated != null) {
             throw new AssertionError(status + " from an exception no S3Proxy " +
-                    "code threw, for:\n" + request + "<" + body.length +
-                    " byte body>", unanticipated);
+                    "code threw, for:\n" + described, unanticipated);
         }
         if (code >= 500 && code != 501) {
-            throw new AssertionError(status + " for:\n" + request +
-                    "<" + body.length + " byte body>");
+            throw new AssertionError(status + " for:\n" + described);
         }
+        earlier.append(request).append('<').append(body.length)
+                .append(" byte body> answered ").append(status)
+                .append('\n');
     }
 
     private static String statusLine(ByteBuffer response) {
