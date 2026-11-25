@@ -1187,15 +1187,20 @@ public final class EncryptedBlobStoreTest {
      */
     @Test
     public void testListForeignContinuationTokenIsInvalidArgument() {
-        assertThatThrownBy(() -> encryptedBlobStore.list(
-                ListObjectsV2Request.builder().bucket(containerName)
-                        .delimiter(".").continuationToken("foreign")
-                        .build()))
-                .isInstanceOfSatisfying(AwsServiceException.class, e -> {
-                    assertThat(e.statusCode()).isEqualTo(400);
-                    assertThat(S3Exceptions.errorCode(e))
-                            .isEqualTo("InvalidArgument");
-                });
+        // the second has the prefix this store's tokens carry, and no
+        // base64 after it
+        for (String token : List.of("foreign", "s3enc-!!!")) {
+            assertThatThrownBy(() -> encryptedBlobStore.list(
+                    ListObjectsV2Request.builder().bucket(containerName)
+                            .delimiter(".").continuationToken(token)
+                            .build()))
+                    .as(token)
+                    .isInstanceOfSatisfying(AwsServiceException.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(400);
+                        assertThat(S3Exceptions.errorCode(e))
+                                .isEqualTo("InvalidArgument");
+                    });
+        }
     }
 
     /**

@@ -283,14 +283,21 @@ public final class EncryptedBlobStore extends ForwardingBlobStore {
         }
         String token = request.continuationToken();
         if (token != null) {
+            // as S3 answers a token it never issued
+            var foreign = S3Exceptions.invalidArgument(
+                    "The continuation token provided is incorrect");
             if (!token.startsWith(GROUPING_TOKEN_PREFIX)) {
-                // as S3 answers a token it never issued
-                throw S3Exceptions.invalidArgument(
-                        "The continuation token provided is incorrect");
+                throw foreign;
             }
-            after = new String(Base64.getUrlDecoder().decode(
-                    token.substring(GROUPING_TOKEN_PREFIX.length())),
-                    StandardCharsets.UTF_8);
+            try {
+                after = new String(Base64.getUrlDecoder().decode(
+                        token.substring(GROUPING_TOKEN_PREFIX.length())),
+                        StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException iae) {
+                // The prefix, but no base64 after it: not one this store
+                // minted either.  Uncaught, it reached the client as a 500.
+                throw foreign;
+            }
             skipPrefix = commonPrefixOf(clientKey(after), prefix, delimiter);
         }
 
