@@ -249,6 +249,16 @@ public final class S3Exceptions {
     }
 
     /**
+     * S3's 409 OperationAborted, for a write that lost to another operation
+     * on the same object or bucket: one the client may try again.
+     */
+    public static S3Exception operationAborted(@Nullable Throwable cause) {
+        return withCode(409, "OperationAborted",
+                "A conflicting conditional operation is currently in" +
+                " progress against this resource. Try again.", cause);
+    }
+
+    /**
      * S3's 503 SlowDown, for a backend that throttled the request: the code
      * that tells a client to back off before it retries.
      */

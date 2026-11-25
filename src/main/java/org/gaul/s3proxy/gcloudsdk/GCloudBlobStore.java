@@ -3063,10 +3063,7 @@ public final class GCloudBlobStore implements BlobStore {
                     Strings.nullToEmpty(se.getMessage()));
         }
         case 409 -> {
-            return S3Exceptions.withCode(409, "OperationAborted",
-                    "A conflicting conditional operation is currently in" +
-                    " progress against this resource. Please try again.",
-                    se);
+            return S3Exceptions.operationAborted(se);
         }
         case 429 -> {
             return S3Exceptions.slowDown(se);

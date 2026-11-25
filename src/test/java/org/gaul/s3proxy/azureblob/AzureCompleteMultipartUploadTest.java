@@ -35,9 +35,14 @@ import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpMethod;
 import com.azure.core.http.HttpRequest;
 import com.azure.core.http.HttpResponse;
+import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
+import com.azure.storage.common.StorageSharedKeyCredential;
 import com.google.common.base.Suppliers;
+import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.gaul.s3proxy.TestUtils;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Constants;
@@ -60,7 +65,8 @@ import software.amazon.awssdk.services.s3.model.UploadPartRequest;
  * Completing an upload on Azure commits a block list, and each way that
  * fails is answered with the code S3 gives it rather than the bare 400 an
  * IllegalArgumentException became, or the 500 of an Azure error passed on.
- * Run against Azurite, on the azureblob lane; a failure only the service
+ * So is a write to a blob that an out-of-band lease holds.  Run
+ * against Azurite, on the azureblob lane; a failure only the service
  * can produce is answered in its place by the HttpClient the store is
  * given, which passes every other request on.
  */
@@ -70,13 +76,13 @@ public final class AzureCompleteMultipartUploadTest {
     /** What Put Block List is answered with, when not passed on. */
     private volatile @Nullable Refusal commitRefusal;
 
+    private final Properties properties = new Properties();
     private BlobStore blobStore;
     private String container;
 
     @BeforeEach
     public void setUp() throws IOException {
         assumeTrue(TestUtils.testBlobStoreProvider().equals("azureblob"));
-        var properties = new Properties();
         try (InputStream is = Resources.asByteSource(Resources.getResource(
                 System.getProperty("s3proxy.test.conf"))).openStream()) {
             properties.load(is);
@@ -163,6 +169,48 @@ public final class AzureCompleteMultipartUploadTest {
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("NoSuchUpload");
                 });
+    }
+
+    /**
+     * A lease taken out of band holds the blob, and S3Proxy, which takes
+     * none, cannot name it: Azure refuses each write 412 LeaseIdMissing,
+     * which was passed on as a 500.  S3 has no leases; its word for a write
+     * that lost to another holder is OperationAborted.
+     */
+    @Test
+    public void testLeasedBlobIsOperationAborted() throws Exception {
+        byte[] content = "leased".getBytes(StandardCharsets.UTF_8);
+        TestUtils.putBlob(blobStore, container, "key",
+                ByteSource.wrap(content));
+        var lease = new BlobLeaseClientBuilder()
+                .blobClient(new BlobServiceClientBuilder()
+                        .endpoint(properties.getProperty(
+                                Constants.PROPERTY_ENDPOINT))
+                        .credential(new StorageSharedKeyCredential(
+                                properties.getProperty(
+                                        Constants.PROPERTY_IDENTITY),
+                                properties.getProperty(
+                                        Constants.PROPERTY_CREDENTIAL)))
+                        .buildClient()
+                        .getBlobContainerClient(container)
+                        .getBlobClient("key"))
+                .buildClient();
+        lease.acquireLease(/*duration=*/ -1);
+        try {
+            for (ThrowingCallable write : List.<ThrowingCallable>of(
+                    () -> TestUtils.putBlob(blobStore, container, "key",
+                            ByteSource.wrap(content)),
+                    this::uploadOnePart)) {
+                assertThatThrownBy(write)
+                        .isInstanceOfSatisfying(S3Exception.class, e -> {
+                            assertThat(e.statusCode()).isEqualTo(409);
+                            assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo("OperationAborted");
+                        });
+            }
+        } finally {
+            lease.breakLease();
+        }
     }
 
     private MultipartUpload uploadOnePart() {

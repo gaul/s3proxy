@@ -3423,14 +3423,12 @@ public final class AzureBlobStore implements BlobStore {
                 throw translate(bse, mpu.containerName(), targetBlobName);
             } else if (bse.getStatusCode() == 409) {
                 // Another operation on the blob is in the way, a snapshot
-                // being taken, say.  (A lease is 412 LeaseIdMissing.)  S3's
-                // word for a write that lost to another operation is
-                // OperationAborted, a 409 that says to try again, where a
-                // bare 400 said the request was wrong.
-                throw S3Exceptions.withCode(409, "OperationAborted",
-                        "A conflicting conditional operation is currently" +
-                        " in progress against this resource. Try again.",
-                        bse);
+                // being taken, say.  (A lease is 412 LeaseIdMissing, which
+                // translate answers the same way.)  S3's word for a write
+                // that lost to another operation is OperationAborted, a 409
+                // that says to try again, where a bare 400 said the request
+                // was wrong.
+                throw S3Exceptions.operationAborted(bse);
             } else if (bse.getStatusCode() == 412) {
                 throw translateWrite(bse, mpu.containerName(), targetBlobName,
                         request.ifMatch());
@@ -4039,6 +4037,12 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.noSuchKey(container, key, "", bse);
         } else if (code.equals(BlobErrorCode.CONTAINER_NOT_FOUND)) {
             return S3Exceptions.noSuchBucket(container, "", bse);
+        } else if (code.equals(BlobErrorCode.LEASE_ID_MISSING)) {
+            // A lease taken out of band holds the blob or container, and
+            // S3Proxy, which takes none, cannot name it.  S3 has no leases;
+            // its word for a write that lost to another holder is
+            // OperationAborted.  Passed on, the 412 was a 500.
+            return S3Exceptions.operationAborted(bse);
         } else if (code.equals(BlobErrorCode.CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.SOURCE_CONDITION_NOT_MET) ||
                 code.equals(BlobErrorCode.TARGET_CONDITION_NOT_MET)) {

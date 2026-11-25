@@ -233,6 +233,23 @@ public final class AzureBlobStoreTranslateTest {
         }
     }
 
+    /**
+     * A lease taken out of band, which S3Proxy cannot name, makes Azure
+     * refuse a write 412 LeaseIdMissing.  Passed on it was a 500; S3 has no
+     * leases, and its word for a write that lost to another holder is 409
+     * OperationAborted.
+     */
+    @Test
+    public void testLeaseIsOperationAborted() {
+        assertThat(AzureBlobStore.translate(
+                azureException(412, "LeaseIdMissing"), "container", "key"))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(409);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("OperationAborted");
+                });
+    }
+
     /** An Azure service error as the SDK would raise it. */
     private static BlobStorageException azureException(int statusCode,
             @Nullable String errorCode) {
