@@ -17,6 +17,7 @@
 package org.gaul.s3proxy.gcloudsdk;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -30,14 +31,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.cloud.NoCredentials;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 /**
  * A Google credential ordinarily mints its own access tokens from a service
@@ -153,6 +158,35 @@ public final class GCloudOAuthTokenTest {
         }
 
         assertThat(authorizations).containsExactly((String) null);
+    }
+
+    /**
+     * A supplier that has lost its token is the operator's to fix, and the
+     * client is told the request failed on this side: 500 InternalError,
+     * found along the cause chain, since the GCS client wraps what its
+     * credentials throw in a StorageException.
+     */
+    @Test
+    public void testSupplierWithoutTokenIsServerError() {
+        var calls = new AtomicInteger();
+        // the store checks for a token when it is built
+        Supplier<Credentials> creds = () -> new Credentials("project",
+                /*credential=*/ "",
+                calls.incrementAndGet() == 1 ? "token" : "");
+
+        try (BlobStore blobStore = store(creds)) {
+            assertThat(Throwables.getCausalChain(
+                    catchThrowable(blobStore::list)))
+                    .filteredOn(AwsServiceException.class::isInstance)
+                    .first()
+                    .satisfies(e -> {
+                        var ase = (AwsServiceException) e;
+                        assertThat(ase.statusCode()).isEqualTo(500);
+                        assertThat(S3Exceptions.errorCode(ase))
+                                .isEqualTo("InternalError");
+                    });
+        }
+        assertThat(authorizations).isEmpty();
     }
 
     private BlobStore store(Supplier<Credentials> creds) {

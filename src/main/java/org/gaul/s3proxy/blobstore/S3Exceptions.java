@@ -235,6 +235,26 @@ public final class S3Exceptions {
     }
 
     /**
+     * A 500 for a credential supplier that yields no session token to a
+     * backend authenticating with one, which is the operator's to fix
+     * rather than the client's.  The detail is the exception's message,
+     * for the log, and the client is told only that the request failed on
+     * this side.  It is thrown from inside the backend's SDK, which may
+     * wrap it, and the frontend finds it along the cause chain; it has no
+     * cause of its own, since the Azure client throws the cause of an
+     * exception that has one in its place.
+     */
+    public static S3Exception noSessionToken() {
+        return (S3Exception) S3Exception.builder()
+                .message("Credential supplier named no session token")
+                .statusCode(500)
+                .awsErrorDetails(details(500, "InternalError",
+                        "We encountered an internal error. Please try again.",
+                        Map.of()))
+                .build();
+    }
+
+    /**
      * A 501 NotImplemented naming what the backend cannot do, for a request
      * S3 itself would honor.  The code is S3's own, where a bare 501 from
      * {@link #fromStatusCode(int)} reaches a client as an unknown error.

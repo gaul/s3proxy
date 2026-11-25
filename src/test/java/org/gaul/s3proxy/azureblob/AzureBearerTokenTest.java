@@ -34,14 +34,18 @@ import com.azure.core.http.HttpRequest;
 import com.azure.core.http.HttpResponse;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.S3Exceptions;
 import org.junit.jupiter.api.Test;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 
 /**
  * With {@code auth} set to {@code bearer} the session token is a Microsoft
@@ -110,6 +114,41 @@ public final class AzureBearerTokenTest {
         assertThat(urls).hasSize(1);
         assertThat(urls.get(0)).contains("comp=userdelegationkey");
         assertThat(authorizations).containsExactly("Bearer token");
+    }
+
+    /**
+     * A supplier that has lost its token is the operator's to fix, and the
+     * client is told the request failed on this side: 500 InternalError,
+     * found along the cause chain, since the Azure client wraps what its
+     * credential throws.  It was an IllegalStateException, which the
+     * frontend answers 400 when it arrives unwrapped.
+     */
+    @Test
+    public void testSupplierWithoutTokenIsServerError() {
+        var calls = new AtomicInteger();
+        // the store checks for a token when it is built
+        Supplier<Credentials> creds = () -> new Credentials(
+                /*identity=*/ "", /*credential=*/ "",
+                calls.incrementAndGet() == 1 ? "token" : "");
+
+        try (BlobStore blobStore = store(creds)) {
+            for (var operation : List.<Runnable>of(blobStore::list,
+                    () -> blobStore.createContainer("bucket"),
+                    () -> blobStore.headBucket(HeadBucketRequest.builder()
+                            .bucket("bucket").build()))) {
+                assertThat(Throwables.getCausalChain(
+                        catchThrowable(operation::run)))
+                        .filteredOn(AwsServiceException.class::isInstance)
+                        .first()
+                        .satisfies(e -> {
+                            var ase = (AwsServiceException) e;
+                            assertThat(ase.statusCode()).isEqualTo(500);
+                            assertThat(S3Exceptions.errorCode(ase))
+                                    .isEqualTo("InternalError");
+                        });
+            }
+        }
+        assertThat(authorizations).isEmpty();
     }
 
     /** The jclouds spelling is not one of the modes. */

@@ -440,7 +440,10 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             parsed = ObjectMapperSingleton.getContext(KeystoneToken.class)
                     .treeToValue(document, KeystoneToken.class);
         } catch (JsonProcessingException jpe) {
-            throw new IllegalStateException(
+            // The document is built just above, so a binding that fails is
+            // a fault here or in openstack4j, a 500, and not the client's,
+            // the 400 an IllegalStateException answered.
+            throw new AssertionError(
                     "Could not build a token for " + storageUrl, jpe);
         }
         parsed.setId(authToken);

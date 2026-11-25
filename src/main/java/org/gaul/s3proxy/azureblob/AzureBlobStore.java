@@ -4125,8 +4125,7 @@ public final class AzureBlobStore implements BlobStore {
             return Mono.fromSupplier(() -> {
                 String sessionToken = creds.get().sessionToken();
                 if (Strings.isNullOrEmpty(sessionToken)) {
-                    throw new IllegalStateException(
-                            "Credential supplier named no session token");
+                    throw S3Exceptions.noSessionToken();
                 }
                 return new AccessToken(sessionToken, LAPSED);
             });
