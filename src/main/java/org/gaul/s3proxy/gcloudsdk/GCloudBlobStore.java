@@ -3069,12 +3069,10 @@ public final class GCloudBlobStore implements BlobStore {
                     se);
         }
         case 429 -> {
-            return S3Exceptions.withCode(503, "SlowDown",
-                    "Please reduce your request rate.", se);
+            return S3Exceptions.slowDown(se);
         }
         case 502, 503, 504 -> {
-            return S3Exceptions.withCode(503, "ServiceUnavailable",
-                    "Service is unable to handle request.", se);
+            return S3Exceptions.serviceUnavailable(se);
         }
         default -> { }
         }

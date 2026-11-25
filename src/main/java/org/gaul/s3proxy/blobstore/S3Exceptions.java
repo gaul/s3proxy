@@ -249,6 +249,24 @@ public final class S3Exceptions {
     }
 
     /**
+     * S3's 503 SlowDown, for a backend that throttled the request: the code
+     * that tells a client to back off before it retries.
+     */
+    public static S3Exception slowDown(@Nullable Throwable cause) {
+        return withCode(503, "SlowDown", "Please reduce your request rate.",
+                cause);
+    }
+
+    /**
+     * S3's 503 ServiceUnavailable, for a backend that could not take the
+     * request just now: a 502, 503 or 504 of its own.
+     */
+    public static S3Exception serviceUnavailable(@Nullable Throwable cause) {
+        return withCode(503, "ServiceUnavailable",
+                "Service is unable to handle request.", cause);
+    }
+
+    /**
      * A 500 InternalError for a fault in how S3Proxy was set up, found while
      * serving a request: the operator's to fix rather than the client's.
      * The detail is the exception's message, for the log, and the client is

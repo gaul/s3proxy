@@ -4005,6 +4005,15 @@ public final class AzureBlobStore implements BlobStore {
             // also covers a source that is missing or forbidden.
             return S3Exceptions.fromStatusCode(412, bse);
         }
+        int statusCode = bse.getStatusCode();
+        if (statusCode == 429 || BlobErrorCode.SERVER_BUSY.equals(code)) {
+            // Azure throttles with 503 ServerBusy, which passed on was a
+            // 500 InternalError; S3's SlowDown tells the client to back off.
+            return S3Exceptions.slowDown(bse);
+        } else if (statusCode == 502 || statusCode == 503 ||
+                statusCode == 504) {
+            return S3Exceptions.serviceUnavailable(bse);
+        }
         if (code == null) {
             // Azure names no x-ms-error-code for a malformed query parameter
             // -- a versionId that is no version id, say -- on any method, not

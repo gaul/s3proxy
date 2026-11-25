@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.util.List;
+import java.util.Map;
 
 import com.azure.core.http.HttpHeaderName;
 import com.azure.core.http.HttpHeaders;
@@ -202,6 +204,33 @@ public final class AzureBlobStoreTranslateTest {
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("InvalidBucketName");
                 });
+    }
+
+    /**
+     * Azure throttles with 503 ServerBusy and is unavailable with a 502, 503
+     * or 504 of its own.  Passed on, each was a 500 InternalError; S3
+     * answers 503 SlowDown, which tells a client to back off, or
+     * ServiceUnavailable.
+     */
+    @Test
+    public void testThrottledOrUnavailableIs503() {
+        for (var entry : List.of(
+                Map.entry(azureException(503, "ServerBusy"),
+                        "SlowDown"),
+                Map.entry(azureException(429, null), "SlowDown"),
+                Map.entry(azureException(503, null),
+                        "ServiceUnavailable"),
+                Map.entry(azureException(502, null),
+                        "ServiceUnavailable"))) {
+            assertThat(AzureBlobStore.translate(entry.getKey(), "container",
+                    "key"))
+                    .as(entry.getValue())
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(503);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo(entry.getValue());
+                    });
+        }
     }
 
     /** An Azure service error as the SDK would raise it. */

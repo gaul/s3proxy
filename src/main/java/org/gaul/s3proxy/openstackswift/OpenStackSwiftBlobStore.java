@@ -2548,6 +2548,13 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         } else if (status == STATUS_PRECONDITION_FAILED ||
                 status == STATUS_RANGE_NOT_SATISFIABLE) {
             return S3Exceptions.fromStatusCode(status, cause);
+        } else if (status == 429 || status == 498) {
+            // Swift's ratelimit middleware answers 498 unless configured
+            // otherwise.  Passed on, either was a 500 InternalError; S3's
+            // SlowDown tells the client to back off.
+            return S3Exceptions.slowDown(cause);
+        } else if (status == 502 || status == 503 || status == 504) {
+            return S3Exceptions.serviceUnavailable(cause);
         }
         if (cause instanceof RuntimeException runtime) {
             return runtime;
