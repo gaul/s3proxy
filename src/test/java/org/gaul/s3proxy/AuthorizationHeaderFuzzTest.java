@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Tag;
 public final class AuthorizationHeaderFuzzTest {
     @FuzzTest
     void authorizationHeader(@NotNull String header) {
-        FuzzOracles.refusedAsClientError(() -> new S3AuthorizationHeader(header));
+        FuzzOracles.refusedWithIllegalArgument(
+                () -> new S3AuthorizationHeader(header));
     }
 }

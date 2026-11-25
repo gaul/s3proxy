@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Tag;
 public final class SessionPolicyFuzzTest {
     @FuzzTest
     void sessionPolicy(@NotNull String document) {
-        FuzzOracles.refusedAsClientError(() -> SessionPolicy.parse(document));
+        FuzzOracles.refusedWithIllegalArgument(
+                () -> SessionPolicy.parse(document));
     }
 }

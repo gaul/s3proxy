@@ -37,10 +37,8 @@ import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -61,14 +59,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.slf4j.ILoggerFactory;
-import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxy;
-import ch.qos.logback.core.AppenderBase;
 import software.amazon.awssdk.checksums.DefaultChecksumAlgorithm;
 import software.amazon.awssdk.checksums.SdkChecksum;
 import software.amazon.awssdk.http.ContentStreamProvider;
@@ -250,16 +241,6 @@ public final class HandlerFuzzTest {
             "x-amz-tagging-directive", "x-amz-trailer",
             "x-amz-write-offset-bytes");
 
-    /**
-     * The IllegalArgumentExceptions and IllegalStateExceptions that the
-     * Jetty handler answered 400 although no S3Proxy code threw them: an
-     * unchecked parse or a library's precondition, which says the request
-     * reached code that did not expect it.  S3Proxy's own refusals throw
-     * from S3Proxy code and are not collected.
-     */
-    private static final Queue<Throwable> UNANTICIPATED =
-            new ConcurrentLinkedQueue<>();
-
     /** The signed target, which the tests of the harness itself use. */
     private static Target signed;
 
@@ -288,7 +269,6 @@ public final class HandlerFuzzTest {
          * authenticates nothing otherwise.
          */
         static Target start(boolean signs) throws Exception {
-            collectUnanticipated();
             BlobStore blobStore = TestUtils.createTransientBlobStore();
             S3Proxy proxy = S3Proxy.builder()
                     .stopTimeout(0)
@@ -314,55 +294,6 @@ public final class HandlerFuzzTest {
         void exchange(FuzzedDataProvider data) throws Exception {
             HandlerFuzzTest.exchange(blobStore, connector, data, signs);
         }
-    }
-
-    private static boolean collecting;
-
-    /** Has the Jetty handler's 400s from foreign code collected. */
-    private static synchronized void collectUnanticipated()
-            throws InterruptedException {
-        if (collecting) {
-            return;
-        }
-        // Test classes start concurrently, and while one is initializing
-        // logging SLF4J hands the others stand-in loggers, which logback's
-        // appenders cannot be added to.
-        ILoggerFactory factory = LoggerFactory.getILoggerFactory();
-        for (int i = 0; !(factory instanceof LoggerContext) && i < 500;
-                ++i) {
-            Thread.sleep(10);
-            factory = LoggerFactory.getILoggerFactory();
-        }
-        if (!(factory instanceof LoggerContext context)) {
-            throw new IllegalStateException("logback never initialized: " +
-                    factory);
-        }
-        collecting = true;
-        var jettyLogger = context.getLogger(S3ProxyHandlerJetty.class);
-        jettyLogger.setLevel(Level.DEBUG);
-        jettyLogger.setAdditive(false);
-        var appender = new AppenderBase<ILoggingEvent>() {
-            @Override
-            protected void append(ILoggingEvent event) {
-                if (!(event.getThrowableProxy() instanceof
-                        ThrowableProxy proxy)) {
-                    return;
-                }
-                Throwable t = proxy.getThrowable();
-                if (!(t instanceof IllegalArgumentException ||
-                        t instanceof IllegalStateException)) {
-                    return;
-                }
-                StackTraceElement[] trace = t.getStackTrace();
-                if (trace.length == 0 || !trace[0].getClassName()
-                        .startsWith("org.gaul.s3proxy.")) {
-                    UNANTICIPATED.add(t);
-                }
-            }
-        };
-        appender.setContext(context);
-        appender.start();
-        jettyLogger.addAppender(appender);
     }
 
     @BeforeAll
@@ -986,7 +917,6 @@ public final class HandlerFuzzTest {
                 new String(wire.body(), StandardCharsets.UTF_8) :
                 "<" + wire.body().length + " byte body>");
 
-        UNANTICIPATED.clear();
         long start = System.nanoTime();
         ByteBuffer response = connector.getResponse(wire.buffer(),
                 method.equals("HEAD"), 10, TimeUnit.SECONDS);
@@ -1016,11 +946,9 @@ public final class HandlerFuzzTest {
                     "\" for:\n" + described);
         }
         int code = Integer.parseInt(parts[1]);
-        Throwable unanticipated = UNANTICIPATED.poll();
-        if (unanticipated != null) {
-            throw new AssertionError(status + " from an exception no S3Proxy " +
-                    "code threw, for:\n" + described, unanticipated);
-        }
+        // An IllegalArgumentException or IllegalStateException that escapes
+        // to the Jetty handler is a 500 too, its stack trace in the warning
+        // the handler logs.
         if (code >= 500 && code != 501) {
             throw new AssertionError(status + " for:\n" + described);
         }

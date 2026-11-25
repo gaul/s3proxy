@@ -19,25 +19,46 @@ package org.gaul.s3proxy;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 /**
- * What the parser fuzz targets hold a parser to: it may refuse its input
- * only with an exception the handler answers as a client error, since any
- * other is a 500.
+ * What the parser fuzz targets hold a parser to: it may refuse its input only
+ * with an exception that reaches the client as its fault, since any other is
+ * a 500.  An IllegalArgumentException is one only from a parser whose callers
+ * all catch it and answer with an S3 error; the Jetty handler answers any
+ * that reaches it 500.
  */
 final class FuzzOracles {
     private FuzzOracles() { }
 
-    /** Whether the handler answers this exception as the client's fault. */
+    /**
+     * Whether the handler answers this exception as the client's fault, or
+     * as 501 NotImplemented, which is no fault at all.
+     */
     static boolean isClientError(Throwable t) {
-        return t instanceof IllegalArgumentException ||
-                t instanceof IllegalStateException ||
-                t instanceof UnsupportedOperationException ||
+        return t instanceof UnsupportedOperationException ||
                 (t instanceof AwsServiceException ase &&
                         ase.statusCode() < 500);
     }
 
+    /** For a parser that refuses its input with an S3 error. */
     static void refusedAsClientError(Runnable parse) {
         try {
             parse.run();
+        } catch (RuntimeException re) {
+            if (!isClientError(re)) {
+                throw re;
+            }
+        }
+    }
+
+    /**
+     * For a parser that refuses its input with an IllegalArgumentException,
+     * which every caller catches and answers with an S3 error.  An
+     * IllegalStateException is no refusal: the callers let it through.
+     */
+    static void refusedWithIllegalArgument(Runnable parse) {
+        try {
+            parse.run();
+        } catch (IllegalArgumentException iae) {
+            // refused, as the callers expect
         } catch (RuntimeException re) {
             if (!isClientError(re)) {
                 throw re;

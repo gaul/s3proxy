@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Tag;
 public final class SessionTokenFuzzTest {
     @FuzzTest
     void sessionToken(@NotNull String token) {
-        FuzzOracles.refusedAsClientError(() -> SessionToken.decode(token, "secret"));
+        FuzzOracles.refusedWithIllegalArgument(
+                () -> SessionToken.decode(token, "secret"));
     }
 }
