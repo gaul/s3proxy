@@ -169,6 +169,15 @@ final class S3ProxyHandlerJetty extends HttpServlet {
     private void handleAwsServiceException(HttpServletRequest request,
             HttpServletResponse response, AwsServiceException ase)
             throws IOException {
+        // A failure on this side or the backend's is the operator's to see:
+        // the client is told only that the request failed, and the detail,
+        // e.g. a credential supplier that lost its token, is in the
+        // exception.  501 says what is not supported, which is no fault.
+        if (ase.statusCode() >= 500 &&
+                ase.statusCode() != HttpServletResponse.SC_NOT_IMPLEMENTED) {
+            logger.warn("{} answering {} {}", ase.statusCode(),
+                    request.getMethod(), request.getRequestURI(), ase);
+        }
         // e.g. the ETag a 304 Not Modified echoes, or x-amz-delete-marker
         // and x-amz-version-id riding on a versioned backend's refusal to
         // read a delete marker
