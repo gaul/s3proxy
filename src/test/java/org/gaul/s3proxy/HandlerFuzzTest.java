@@ -32,6 +32,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Queue;
@@ -39,6 +40,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -110,8 +113,18 @@ public final class HandlerFuzzTest {
     private static final String BUCKET = "fuzz";
     private static final List<String> SEEDED_KEYS = List.of("key", "dir/key");
     private static final long SLOW_MILLIS = 900;
-    /** Enough for a write followed by a read or a write it conflicts with. */
-    private static final int MAX_REQUESTS = 3;
+    /**
+     * Enough for a multipart upload: initiated, a part uploaded with the
+     * upload id the first answer gave, completed with the part's ETag, and
+     * the object read.
+     */
+    private static final int MAX_REQUESTS = 4;
+    /** The most values of each kind kept from the answers of an input. */
+    private static final int MAX_CAPTURED = 8;
+    private static final Pattern CAPTURED_ELEMENT = Pattern.compile(
+            "<(UploadId|VersionId|ETag)>([^<]*)</\\1>");
+    private static final Pattern CAPTURED_HEADER = Pattern.compile(
+            "(?im)^(ETag|x-amz-version-id): *([^\r\n]*)$");
     /** The body of a request other than the last, which takes the rest. */
     private static final int MAX_EARLIER_BODY = 256;
 
@@ -348,6 +361,62 @@ public final class HandlerFuzzTest {
         }
     }
 
+    /**
+     * What an answer gives, a later request can name: the upload id that
+     * initiating a multipart upload answers, the ETag of a part, and the
+     * version id of an object written to a versioned bucket.  Otherwise the
+     * fuzzer could never complete an upload or read a version.
+     */
+    @Test
+    void testAnswersFeedLaterRequests() throws Exception {
+        reset(signedStore);
+        var captured = new Captured();
+        String key = "/" + BUCKET + "/upload";
+        assertThat(capture(captured, new Request("POST", key,
+                List.of(new Parameter("uploads", null)), List.of(),
+                new byte[0]))).startsWith("HTTP/1.1 200 ");
+        String uploadId = captured.values().get(0);
+        assertThat(capture(captured, new Request("PUT", key, List.of(
+                new Parameter("partNumber", "1"),
+                new Parameter("uploadId", uploadId)), List.of(),
+                "content".getBytes(StandardCharsets.UTF_8))))
+                .startsWith("HTTP/1.1 200 ");
+        assertThat(capture(captured, new Request("POST", key,
+                List.of(new Parameter("uploadId", uploadId)), List.of(),
+                captured.completeMultipartUpload())))
+                .startsWith("HTTP/1.1 200 ");
+        assertThat(capture(captured, new Request("GET", key, List.of(),
+                List.of(), new byte[0]))).endsWith("\r\n\r\ncontent");
+
+        var versioned = new Captured();
+        assertThat(capture(versioned, new Request("PUT", "/" + BUCKET,
+                List.of(new Parameter("versioning", null)), List.of(),
+                ("<VersioningConfiguration><Status>Enabled</Status>" +
+                "</VersioningConfiguration>").getBytes(
+                        StandardCharsets.UTF_8))))
+                .startsWith("HTTP/1.1 200 ");
+        String object = "/" + BUCKET + "/versioned";
+        for (String content : List.of("first", "second")) {
+            assertThat(capture(versioned, new Request("PUT", object,
+                    List.of(), List.of(), content.getBytes(
+                            StandardCharsets.UTF_8))))
+                    .startsWith("HTTP/1.1 200 ");
+        }
+        String first = versioned.values().stream()
+                .filter(value -> value.startsWith("v"))
+                .findFirst().orElseThrow();
+        assertThat(capture(versioned, new Request("GET", object,
+                List.of(new Parameter("versionId", first)), List.of(),
+                new byte[0]))).endsWith("\r\n\r\nfirst");
+    }
+
+    private static String capture(Captured captured, Request request)
+            throws Exception {
+        String answer = answer(write(request, Signing.V4_HEADER, -1));
+        captured.add(answer);
+        return answer;
+    }
+
     /** What the request has to carry for it to be signed as named. */
     private static String wireMarker(Signing signing) {
         return switch (signing) {
@@ -376,12 +445,94 @@ public final class HandlerFuzzTest {
             boolean signs) throws Exception {
         reset(blobStore);
         var earlier = new StringBuilder();
+        var captured = new Captured();
         int requests = data.consumeInt(1, MAX_REQUESTS);
         for (int i = 1; i <= requests; ++i) {
             byte[] body = i == requests ? null :
                     data.consumeBytes(data.consumeInt(0, MAX_EARLIER_BODY));
-            send(connector, data, signs, body, earlier);
+            send(connector, data, signs, body, earlier, captured);
         }
+    }
+
+    /**
+     * The upload ids, version ids and ETags that the answers of an input
+     * have given, for its later requests to name.  The fuzzer cannot guess
+     * them: an upload id is random and a version id is minted from the
+     * clock, so without these a request could never go on with an upload
+     * an earlier one began, read a version an earlier one wrote, or meet a
+     * condition on an ETag.  Taken from the answer each time, they are as
+     * good when an input is replayed as when it was found.
+     */
+    private static final class Captured {
+        private final Set<String> values = new LinkedHashSet<>();
+        private final Set<String> eTags = new LinkedHashSet<>();
+
+        void add(String answer) {
+            Matcher header = CAPTURED_HEADER.matcher(answer);
+            while (header.find()) {
+                add(header.group(1).equalsIgnoreCase("ETag"),
+                        header.group(2).strip());
+            }
+            Matcher element = CAPTURED_ELEMENT.matcher(answer);
+            while (element.find()) {
+                add(element.group(1).equals("ETag"),
+                        element.group(2).replace("&quot;", "\"")
+                                .replace("&#34;", "\""));
+            }
+        }
+
+        private void add(boolean eTag, String value) {
+            if (value.isEmpty()) {
+                return;
+            }
+            if (values.size() < MAX_CAPTURED * 3) {
+                values.add(value);
+            }
+            if (eTag && eTags.size() < MAX_CAPTURED) {
+                eTags.add(value);
+            }
+        }
+
+        boolean isEmpty() {
+            return values.isEmpty();
+        }
+
+        List<String> values() {
+            return List.copyOf(values);
+        }
+
+        /**
+         * A CompleteMultipartUpload body naming each ETag captured, as parts
+         * numbered from one in the order they were answered.
+         */
+        byte @Nullable [] completeMultipartUpload() {
+            if (eTags.isEmpty()) {
+                return null;
+            }
+            var xml = new StringBuilder("<CompleteMultipartUpload>");
+            int partNumber = 1;
+            for (String eTag : eTags) {
+                xml.append("<Part><PartNumber>").append(partNumber++)
+                        .append("</PartNumber><ETag>")
+                        .append(eTag.replace("&", "&amp;")
+                                .replace("<", "&lt;"))
+                        .append("</ETag></Part>");
+            }
+            return xml.append("</CompleteMultipartUpload>").toString()
+                    .getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * A value the fuzzer chooses: one an earlier answer gave, when there is
+     * one and it chooses to, or one of its own.
+     */
+    private static String value(FuzzedDataProvider data, Captured captured,
+            int maxLength) {
+        if (!captured.isEmpty() && data.consumeBoolean()) {
+            return data.pickValue(captured.values());
+        }
+        return data.consumeString(maxLength);
     }
 
     /** A query parameter, decoded; a null value is one without an '='. */
@@ -492,8 +643,8 @@ public final class HandlerFuzzTest {
      */
     private static void send(LocalConnector connector,
             FuzzedDataProvider data, boolean signs,
-            byte @Nullable [] earlierBody, StringBuilder earlier)
-            throws Exception {
+            byte @Nullable [] earlierBody, StringBuilder earlier,
+            Captured captured) throws Exception {
         String method = data.pickValue(METHODS);
         var path = new StringBuilder("/");
         String bucket = data.pickValue(List.of(BUCKET, BUCKET, "", "other"));
@@ -508,13 +659,14 @@ public final class HandlerFuzzTest {
         for (int i = 0; i < parameterCount; ++i) {
             String name = data.pickValue(PARAMETERS);
             parameters.add(new Parameter(name,
-                    data.consumeBoolean() ? data.consumeString(40) : null));
+                    data.consumeBoolean() ? value(data, captured, 40) :
+                    null));
         }
         var headers = new ArrayList<Header>();
         int headerCount = data.consumeInt(0, 4);
         for (int i = 0; i < headerCount; ++i) {
             headers.add(new Header(data.pickValue(HEADERS),
-                    headerValue(data.consumeString(60))));
+                    headerValue(value(data, captured, 60))));
         }
         Signing signing = signs ? data.pickValue(Signing.values()) :
                 Signing.NONE;
@@ -522,7 +674,9 @@ public final class HandlerFuzzTest {
         // the paths that find a chunk's signature or the trailer wrong
         int tamper = signing.chunked() && data.consumeBoolean() ?
                 data.consumeInt(0, Integer.MAX_VALUE) : -1;
-        byte[] body = earlierBody != null ? earlierBody :
+        byte[] complete = captured.completeMultipartUpload();
+        byte[] body = complete != null && data.consumeBoolean() ? complete :
+                earlierBody != null ? earlierBody :
                 data.consumeRemainingAsBytes();
         Wire wire = write(new Request(method, path.toString(), parameters,
                 headers, body), signing, tamper);
@@ -550,6 +704,8 @@ public final class HandlerFuzzTest {
             throw new AssertionError("answered only after " + millis +
                     " ms:\n" + described);
         }
+        String answer = StandardCharsets.ISO_8859_1.decode(
+                response.duplicate()).toString();
         String status = statusLine(response);
         // "HTTP/1.1 500 Server Error"
         String[] parts = status.split(" ", 3);
@@ -569,6 +725,7 @@ public final class HandlerFuzzTest {
         earlier.append(wire.head()).append('<').append(wire.body().length)
                 .append(" byte body> answered ").append(status)
                 .append('\n');
+        captured.add(answer);
     }
 
     /** Writes the request, signed as signing says. */
