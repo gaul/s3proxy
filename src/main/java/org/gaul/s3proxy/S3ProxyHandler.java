@@ -83,6 +83,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.escape.Escaper;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteStreams;
+import com.google.common.io.CountingInputStream;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.PercentEscaper;
@@ -232,6 +233,13 @@ import tools.jackson.dataformat.xml.XmlReadFeature;
 
 /** HTTP server-independent handler for S3 requests. */
 public class S3ProxyHandler {
+    /**
+     * The request attribute holding a CountingInputStream over the body, set
+     * by the servlet that hands the body to the operation, so that a drain
+     * knows how much of the body the operation read.
+     */
+    static final String BODY_BYTES_READ = S3ProxyHandler.class.getName() +
+            ".bodyBytesRead";
     private static final Logger logger = LoggerFactory.getLogger(
             S3ProxyHandler.class);
 
@@ -8667,11 +8675,22 @@ public class S3ProxyHandler {
         try {
             var is = request.getInputStream();
             var buffer = new byte[8192];
+            // What the operation read counts towards the declared length.
+            // A decoder that stops at the end of what it decodes leaves a
+            // little behind -- the aws-chunked one leaves the CRLF after its
+            // last chunk -- and counted alone, those bytes never added up to
+            // the length, so the wait ran out its idle time after them: a
+            // second on every aws-chunked upload, which a client refused
+            // before the response completed waited out for its answer.
+            long read = bodyBytesRead(request);
             long drained = 0;
             long start = System.nanoTime();
             long lastProgress = start;
             long length = request.getContentLengthLong();
             while (!is.isFinished() && drained <= DRAIN_MAX_BYTES) {
+                if (length >= 0 && read + drained >= length) {
+                    return;
+                }
                 int available = is.available();
                 if (available > 0) {
                     int count = is.read(buffer, 0,
@@ -8679,16 +8698,12 @@ public class S3ProxyHandler {
                     if (count == -1) {
                         return;
                     }
+                    // The body has ended once its declared length is read,
+                    // checked above.  Jetty calls it finished only after a
+                    // read meets that end, which no amount of polling
+                    // brings, so without the check the wait ran out its full
+                    // idle time on a body already read.
                     drained += count;
-                    // The body has ended once its declared length is read.
-                    // Jetty calls it finished only after a read meets that
-                    // end, which no amount of polling brings, so without
-                    // this the wait ran out its full idle time on a body
-                    // already read.  One the operation had begun to read
-                    // never adds up here, and still waits that out.
-                    if (length >= 0 && drained >= length) {
-                        return;
-                    }
                     lastProgress = System.nanoTime();
                     continue;
                 }
@@ -8706,6 +8721,11 @@ public class S3ProxyHandler {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static long bodyBytesRead(HttpServletRequest request) {
+        return request.getAttribute(BODY_BYTES_READ) instanceof
+                CountingInputStream counting ? counting.getCount() : 0;
     }
 
     /**

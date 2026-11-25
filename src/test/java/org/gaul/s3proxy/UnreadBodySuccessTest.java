@@ -166,6 +166,70 @@ public final class UnreadBodySuccessTest {
         }
     }
 
+    /**
+     * An aws-chunked body, stored and refused, does not hold up its
+     * connection.  The decoder stops after the last chunk, short of the
+     * CRLF that ends the body, and the drain counted only what it read
+     * itself against the whole length: it waited a second for the rest of a
+     * body that had all arrived, holding up the next request on the
+     * connection, and the answer itself when the request was refused before
+     * its response completed.
+     */
+    @Test
+    public void testAwsChunkedBodyAnsweredPromptly() throws Exception {
+        String stored = "7\r\ncontent\r\n0\r\n\r\n";
+        String empty = "0\r\n\r\n";
+        // the second is refused for its canned ACL, before its body is read
+        for (var request : List.of(
+                List.of("PUT /" + CONTAINER + "/chunked", "7", stored, ""),
+                List.of("PUT /" + CONTAINER + "/refused", "0", empty,
+                        "x-amz-acl: bogus\r\n"))) {
+            try (var socket = new Socket()) {
+                socket.connect(new InetSocketAddress(
+                        InetAddress.getLoopbackAddress(), port));
+                socket.setSoTimeout(10_000);
+                OutputStream out = socket.getOutputStream();
+                InputStream in = new BufferedInputStream(
+                        socket.getInputStream());
+
+                long start = System.nanoTime();
+                out.write((request.get(0) + " HTTP/1.1\r\n" +
+                        "Host: 127.0.0.1\r\n" +
+                        "Content-Encoding: aws-chunked\r\n" +
+                        "x-amz-content-sha256: " +
+                        "STREAMING-UNSIGNED-PAYLOAD-TRAILER\r\n" +
+                        "x-amz-decoded-content-length: " + request.get(1) +
+                        "\r\n" +
+                        request.get(3) +
+                        "Content-Length: " + request.get(2).length() +
+                        "\r\n" +
+                        "\r\n" +
+                        request.get(2)).getBytes(StandardCharsets.ISO_8859_1));
+                out.flush();
+                String head = readHead(in);
+                assertThat(millisSince(start)).as(request.get(0))
+                        .isLessThan(500);
+                assertThat(head).as(request.get(0)).startsWith(
+                        request.get(3).isEmpty() ? "HTTP/1.1 200 " :
+                        "HTTP/1.1 400 ");
+                skipBody(in, head);
+                if (head.contains("Connection: close")) {
+                    continue;
+                }
+
+                start = System.nanoTime();
+                out.write(("HEAD /" + CONTAINER + " HTTP/1.1\r\n" +
+                        "Host: 127.0.0.1\r\n" +
+                        "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                out.flush();
+                assertThat(readHead(in)).as(request.get(0))
+                        .startsWith("HTTP/1.1 200 ");
+                assertThat(millisSince(start)).as(request.get(0))
+                        .isLessThan(500);
+            }
+        }
+    }
+
     private static long millisSince(long start) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
     }

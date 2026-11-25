@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Throwables;
+import com.google.common.io.CountingInputStream;
 import com.google.common.net.HttpHeaders;
 
 import jakarta.servlet.http.HttpServlet;
@@ -81,7 +82,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         long startNanos = System.nanoTime();
         var ctx = new S3ProxyHandler.RequestContext();
 
-        try (InputStream is = request.getInputStream()) {
+        // Counted so that the drain after the response knows how much of the
+        // body is left; see S3ProxyHandler.drainUnreadBody.
+        var counting = new CountingInputStream(request.getInputStream());
+        request.setAttribute(S3ProxyHandler.BODY_BYTES_READ, counting);
+        try (InputStream is = counting) {
 
             try {
                 handler.doHandle(request, request, response, is, ctx);
