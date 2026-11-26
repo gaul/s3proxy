@@ -183,6 +183,46 @@ public final class RequestInputErrorTest {
         }
     }
 
+    /**
+     * CreateBucket takes x-amz-acl as PutBucketAcl does.  It created a
+     * private bucket for any value but the two public ones: for one S3
+     * refuses, and for a canned ACL the store cannot grant, without saying
+     * that it had not.
+     */
+    @Test
+    public void testCreateBucketRefusesAclItCannotGrant() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.NONE);
+        try {
+            String root = "http://127.0.0.1:" + proxy.getPort() + "/";
+            HttpResponse<String> bogus = send(HttpRequest.newBuilder(
+                    URI.create(root + "bogus-acl")).header("x-amz-acl", "bogus")
+                    .PUT(HttpRequest.BodyPublishers.noBody()));
+            assertThat(bogus.statusCode()).isEqualTo(400);
+            assertThat(bogus.body())
+                    .contains("<Code>InvalidArgument</Code>")
+                    .contains("<ArgumentName>x-amz-acl</ArgumentName>" +
+                            "<ArgumentValue>bogus</ArgumentValue>");
+            assertThat(get(proxy, "/bogus-acl").statusCode()).isEqualTo(404);
+
+            HttpResponse<String> unsupported = send(HttpRequest.newBuilder(
+                    URI.create(root + "authenticated-read"))
+                    .header("x-amz-acl", "authenticated-read")
+                    .PUT(HttpRequest.BodyPublishers.noBody()));
+            assertThat(unsupported.statusCode()).isEqualTo(501);
+            assertThat(unsupported.body())
+                    .contains("<Code>NotImplemented</Code>");
+            assertThat(get(proxy, "/authenticated-read").statusCode())
+                    .isEqualTo(404);
+
+            assertThat(send(HttpRequest.newBuilder(URI.create(root +
+                    "private-acl")).header("x-amz-acl", "private")
+                    .PUT(HttpRequest.BodyPublishers.noBody())).statusCode())
+                    .isEqualTo(200);
+        } finally {
+            proxy.stop();
+        }
+    }
+
     /** Completes the upload naming each part number with the one ETag. */
     private HttpResponse<String> complete(String object, String uploadId,
             String eTag, int... partNumbers) throws Exception {

@@ -3742,10 +3742,19 @@ public class S3ProxyHandler {
             }
             createRequest.objectOwnership(objectOwnership);
         }
-        if ("public-read".equalsIgnoreCase(acl)) {
-            createRequest.acl(BucketCannedACL.PUBLIC_READ);
-        } else if ("public-read-write".equalsIgnoreCase(acl)) {
-            createRequest.acl(BucketCannedACL.PUBLIC_READ_WRITE);
+        // As PutBucketAcl takes the header.  Any other value created a
+        // private bucket: one S3 refuses, or one granting what the store
+        // cannot, created without saying so.
+        if (acl != null && !"private".equalsIgnoreCase(acl)) {
+            if ("public-read".equalsIgnoreCase(acl)) {
+                createRequest.acl(BucketCannedACL.PUBLIC_READ);
+            } else if ("public-read-write".equalsIgnoreCase(acl)) {
+                createRequest.acl(BucketCannedACL.PUBLIC_READ_WRITE);
+            } else if (CANNED_ACLS.contains(acl)) {
+                throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
+            } else {
+                throw invalidCannedAcl(acl);
+            }
         }
 
         blobStore.createContainer(createRequest.build());
