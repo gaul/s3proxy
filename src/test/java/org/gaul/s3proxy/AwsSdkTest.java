@@ -1829,6 +1829,47 @@ public final class AwsSdkTest {
     }
 
     /**
+     * A completion naming a part number below 1 is InvalidArgument, ahead
+     * of the order; one above 10,000 is only a part never uploaded,
+     * InvalidPart, unless the order fails first.  Verified against AWS for
+     * each list below.  S3Proxy answered InvalidPartOrder to all of them.
+     */
+    @Test
+    public void testCompletePartNumbersOutOfRange() throws Exception {
+        String key = "testCompletePartNumbersOutOfRange";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)).uploadId();
+        // as large as a part not the last must be, lest [1,10001] be
+        // refused EntityTooSmall before part 10001 is looked for
+        String eTag = client.uploadPart(b -> b.bucket(containerName)
+                .key(key).uploadId(uploadId).partNumber(1),
+                RequestBody.fromBytes(new byte[5 * 1024 * 1024])).eTag();
+        for (var entry : List.of(
+                Map.entry(List.of(0, 1), "InvalidArgument"),
+                Map.entry(List.of(1, 0), "InvalidArgument"),
+                Map.entry(List.of(-1), "InvalidArgument"),
+                Map.entry(List.of(1, 10_001), "InvalidPart"),
+                Map.entry(List.of(10_001, 1), "InvalidPartOrder"))) {
+            var named = entry.getKey().stream()
+                    .map(n -> CompletedPart.builder().partNumber(n)
+                            .eTag(eTag).build())
+                    .toList();
+            assertThatThrownBy(() -> client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(named).build())))
+                    .as(entry.getKey().toString())
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(400);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo(entry.getValue());
+                    });
+        }
+        client.abortMultipartUpload(b -> b.bucket(containerName).key(key)
+                .uploadId(uploadId));
+    }
+
+    /**
      * Two uploads to one key, completed one after the other.  S3 keeps
      * them apart and the second replaces the first.  Azure stages both on
      * the one blob and discards the second's parts when the first commits;

@@ -7702,26 +7702,44 @@ public class S3ProxyHandler {
     }
 
     /**
-     * The parts a completion names, by number, refusing a list that is not
-     * in strictly ascending order as S3 does: a part out of order, or named
-     * twice, is InvalidPartOrder.  Verified against AWS for [2,1], [1,1],
-     * [1,1,2] and [1,2,2].  The list was sorted and its duplicates dropped,
-     * so a completion S3 refuses succeeded, assembling an order the client
-     * never sent.  Jackson reads the list in document order.
+     * The parts a completion names, by number, refusing them as S3 does.
+     * Verified against AWS:
+     *
+     * <ul>
+     * <li>a part number below 1 anywhere in the list is InvalidArgument,
+     * ahead of the order: [0], [0,1], [1,0], [2,0] and [-1];
+     * <li>a list not in strictly ascending order is InvalidPartOrder, a
+     * part out of order or named twice: [2,1], [1,1], [1,1,2], [1,2,2] and
+     * [10001,1];
+     * <li>no upper bound: part 10001 is only a part never uploaded, which
+     * the caller refuses InvalidPart in list order, after an earlier part
+     * found too small.
+     * </ul>
+     *
+     * <p>The list was sorted and its duplicates dropped, so a completion S3
+     * refuses succeeded, assembling an order the client never sent, and
+     * every number outside 1 to 10,000 was InvalidPartOrder.  Jackson reads
+     * the list in document order.
      */
     private static SortedMap<Integer, CompleteMultipartUploadRequest.Part>
             partsInOrder(
                     Collection<CompleteMultipartUploadRequest.Part> parts)
             throws S3ProxyException {
+        for (CompleteMultipartUploadRequest.Part part : parts) {
+            if (part.partNumber() < 1) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                        "PartNumber must be >= 1", /*cause=*/ null,
+                        ImmutableMap.of(
+                                "ArgumentName", "PartNumber",
+                                "ArgumentValue",
+                                String.valueOf(part.partNumber())));
+            }
+        }
         SortedMap<Integer, CompleteMultipartUploadRequest.Part> inOrder =
                 new TreeMap<>();
         int previous = 0;
         for (CompleteMultipartUploadRequest.Part part : parts) {
             int partNumber = part.partNumber();
-            if (partNumber < 1 || partNumber > 10_000) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
-                        "Part numbers must be positive integers.");
-            }
             if (partNumber <= previous) {
                 throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER);
             }
