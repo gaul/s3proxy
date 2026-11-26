@@ -565,6 +565,11 @@ checkstyle.header.file.jclouds=src/main/config/copyright_header_jclouds.txt</pro
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>io.opentelemetry.instrumentation</groupId>
+      <artifactId>opentelemetry-servlet-5.0</artifactId>
+      <version>2.34.0-alpha</version>
+    </dependency>
+    <dependency>
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-exporter-prometheus</artifactId>
       <version>1.68.0-alpha</version>

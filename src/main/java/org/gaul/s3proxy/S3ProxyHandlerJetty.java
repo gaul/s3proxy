@@ -26,7 +26,6 @@ import com.google.common.base.Throwables;
 import com.google.common.io.CountingInputStream;
 import com.google.common.net.HttpHeaders;
 
-import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 
 import jakarta.servlet.http.HttpServlet;
@@ -50,7 +49,6 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             S3ProxyHandlerJetty.class);
 
     private final S3ProxyHandler handler;
-    private final S3Proxy.Telemetry telemetry;
     @Nullable private final S3ProxyMetrics metrics;
 
     S3ProxyHandlerJetty(final BlobStore blobStore,
@@ -63,13 +61,12 @@ final class S3ProxyHandlerJetty extends HttpServlet {
             @Nullable CrossOriginResourceSharing corsRules,
             @Nullable String servicePath, int maximumTimeSkew,
             @Nullable S3ProxyMetrics metrics,
-            @Nullable StsHandler stsHandler, OpenTelemetry openTelemetry) {
+            @Nullable StsHandler stsHandler) {
         handler = new S3ProxyHandler(blobStore, authenticationType, identity,
                 credential, virtualHost, maxSinglePartObjectSize,
                 v4MaxNonChunkedRequestSize, v4MaxChunkSize,
                 ignoreUnknownHeaders, corsRules,
                 servicePath, maximumTimeSkew, stsHandler);
-        telemetry = new S3Proxy.Telemetry(openTelemetry);
         this.metrics = metrics;
     }
 
@@ -81,30 +78,10 @@ final class S3ProxyHandlerJetty extends HttpServlet {
     }
 
     @Override
-    @SuppressWarnings("try")
     protected void service(HttpServletRequest request,
             HttpServletResponse response)
             throws IOException {
         var ctx = new S3ProxyHandler.RequestContext();
-        if (Span.current().getSpanContext().isValid()) {
-            doService(request, response, ctx);
-            return;
-        }
-        Span span = telemetry.start(request);
-        Throwable failure = null;
-        try (var scope = span.makeCurrent()) {
-            doService(request, response, ctx);
-        } catch (IOException | RuntimeException | Error exception) {
-            failure = exception;
-            throw exception;
-        } finally {
-            S3Proxy.Telemetry.end(span, response, ctx, failure);
-        }
-    }
-
-    private void doService(HttpServletRequest request,
-            HttpServletResponse response, S3ProxyHandler.RequestContext ctx)
-            throws IOException {
         long startNanos = System.nanoTime();
 
         // Counted so that the drain after the response knows how much of the
@@ -179,6 +156,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 throw throwable;
             }
         } finally {
+            var operation = ctx.getOperation();
+            if (operation != null) {
+                Span.current().updateName(operation.getValue())
+                        .setAttribute("s3.operation", operation.getValue());
+            }
             traceResponse(response);
             recordMetrics(request, response, ctx, startNanos);
         }

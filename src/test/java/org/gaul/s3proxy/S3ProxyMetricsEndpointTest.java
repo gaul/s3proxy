@@ -102,6 +102,8 @@ public final class S3ProxyMetricsEndpointTest {
                     .isEqualTo("0123456789abcdef");
             assertThat(parented.getKind()).isEqualTo(SpanKind.SERVER);
             assertThat(parented.getName()).isEqualTo("ListBuckets");
+            assertThat(parented.getInstrumentationScopeInfo().getName())
+                    .isEqualTo("io.opentelemetry.servlet-5.0");
             assertThat(parented.getAttributes().get(
                     HttpAttributes.HTTP_REQUEST_METHOD)).isEqualTo("GET");
             assertThat(parented.getAttributes().get(
@@ -121,7 +123,8 @@ public final class S3ProxyMetricsEndpointTest {
             s3Proxy = baseBuilder().openTelemetry(telemetry).build();
             s3Proxy.start();
             assertThat(get("http://127.0.0.1:" + s3Proxy.getPort() +
-                    "/missing-bucket/private-object").statusCode())
+                    "/missing-bucket/private-object" +
+                    "?response-content-type=private-query").statusCode())
                     .isEqualTo(404);
             s3Proxy.stop();
 
@@ -132,9 +135,44 @@ public final class S3ProxyMetricsEndpointTest {
                                 .isEqualTo(404L);
                         assertThat(span.getStatus().getStatusCode())
                                 .isEqualTo(StatusCode.UNSET);
+                        assertThat(span.getAttributes().get(
+                                UrlAttributes.URL_PATH)).isEmpty();
+                        assertThat(span.getAttributes().get(
+                                UrlAttributes.URL_QUERY)).isEmpty();
                         assertThat(span.toString())
-                                .doesNotContain("private-object");
+                                .doesNotContain("private-object", "private-query");
                     });
+        }
+    }
+
+    @Test
+    public void testTraceObjectRoundTrip() throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            s3Proxy = baseBuilder().openTelemetry(telemetry).build();
+            s3Proxy.start();
+            String bucket = "http://127.0.0.1:" + s3Proxy.getPort() +
+                    "/trace-bucket";
+            var client = HttpClient.newHttpClient();
+            assertThat(client.send(HttpRequest.newBuilder(URI.create(bucket))
+                    .PUT(HttpRequest.BodyPublishers.noBody()).build(),
+                    HttpResponse.BodyHandlers.ofString()).statusCode())
+                    .isEqualTo(200);
+            assertThat(client.send(HttpRequest.newBuilder(
+                    URI.create(bucket + "/private-object"))
+                    .PUT(HttpRequest.BodyPublishers.ofString("private-content"))
+                    .build(), HttpResponse.BodyHandlers.ofString()).statusCode())
+                    .isEqualTo(200);
+            var response = get(bucket + "/private-object");
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).isEqualTo("private-content");
+            s3Proxy.stop();
+
+            var spans = exporter.getFinishedSpanItems();
+            assertThat(spans).extracting(span -> span.getName())
+                    .containsExactly("CreateBucket", "PutObject", "GetObject");
+            assertThat(spans.toString())
+                    .doesNotContain("private-object", "private-content");
         }
     }
 

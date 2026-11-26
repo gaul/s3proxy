@@ -295,19 +295,22 @@ Use environment variables for the application process or container, or the
 equivalent `-Dotel.*` JVM system properties. The default service name is
 `s3proxy`; override it with `OTEL_SERVICE_NAME`.
 
-Spans continue incoming W3C trace context, use S3 operation names such as
-`GetObject`, and record the HTTP method and response status. They do not
-include object keys, query strings, or authentication headers. An existing
-active span, for example from the Java agent, is reused rather than duplicated.
-Requests rejected by Jetty before reaching the S3 servlet are not traced.
+The OpenTelemetry servlet instrumentation manages HTTP server spans, incoming
+W3C trace context, sampling, and errors. S3Proxy adds S3 operation names such
+as `GetObject`. URL path and query attributes are redacted to empty strings;
+authentication headers are not captured. The instrumentation suppresses
+duplicate server spans when a Java agent has already instrumented the request.
+Requests rejected by Jetty before reaching the servlet filter are not traced.
 
 Applications embedding S3Proxy can pass their own `OpenTelemetry` instance
 through `S3Proxy.builder().openTelemetry(openTelemetry)`. The caller owns its
 SDK lifecycle; stopping the proxy does not close it.
 
-This integration covers inbound tracing only. Prometheus metrics and console
-logging are unchanged; backend client spans, OTLP metrics, and OTLP logs still
-require separate instrumentation, such as the Java agent.
+Prometheus metrics and console logging are unchanged. The servlet
+instrumentation also supplies standard HTTP server metrics when explicitly
+enabled with `OTEL_METRICS_EXPORTER=otlp`; metrics and log export otherwise
+default to `none`. Backend client spans and OTLP log capture still require
+separate instrumentation, such as the Java agent.
 
 ## CORS
 
