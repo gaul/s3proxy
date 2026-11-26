@@ -286,8 +286,8 @@ public class S3ProxyHandler {
                     .or(CharMatcher.is('.'))
                     .or(CharMatcher.is('_'))
                     .or(CharMatcher.is('-'));
-    private static final long MAX_MULTIPART_COPY_SIZE =
-            5L * 1024L * 1024L * 1024L;
+    /** The largest part S3 takes, uploaded or copied: 5 GiB. */
+    private static final long MAX_PART_SIZE = 5L * 1024L * 1024L * 1024L;
     /**
      * The largest body read into a single array, whatever
      * v4MaxNonChunkedRequestSize is configured to: the JVM will not allocate
@@ -8029,11 +8029,11 @@ public class S3ProxyHandler {
                     // Compared before the one is added: the length of
                     // bytes=0-9223372036854775807 does not fit a long, and
                     // wrapped to a negative number that passed for small.
-                    if (end - start >= MAX_MULTIPART_COPY_SIZE) {
+                    if (end - start >= MAX_PART_SIZE) {
                         throw new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
                                 "The specified copy source is larger than" +
                                 " the maximum allowable size for a copy" +
-                                " source: " + MAX_MULTIPART_COPY_SIZE);
+                                " source: " + MAX_PART_SIZE);
                     }
                     expectedSize = end - start + 1;
                     rangeEnd = end;
@@ -8372,6 +8372,12 @@ public class S3ProxyHandler {
         }
         if (contentLength < 0) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT);
+        }
+        // Refused before the body is read, as S3 refuses it.  Nothing else
+        // limited a part: a store took what it could, and Azure, whose
+        // blocks stop short of this, answered a 500.
+        if (contentLength > MAX_PART_SIZE) {
+            throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_LARGE);
         }
         if (decodedContentLengthString != null) {
             // Not a plain limit: the trailer a chunked body ends with is

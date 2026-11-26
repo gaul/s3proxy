@@ -3452,9 +3452,13 @@ public final class AzureBlobStore implements BlobStore {
         }
 
         if (contentLength > MAXIMUM_MULTIPART_PART_SIZE) {
-            throw new IllegalArgumentException(
-                    "Part size exceeds maximum of " +
-                    MAXIMUM_MULTIPART_PART_SIZE + " bytes: " + contentLength);
+            // A block stops at 4000 MiB, short of the 5 GiB part S3 takes.
+            // S3's word for a part too large is EntityTooLarge, where an
+            // IllegalArgumentException was a 500.
+            throw S3Exceptions.withCode(400, "EntityTooLarge",
+                    "Your proposed upload exceeds the maximum allowed size." +
+                    "  This backend takes parts of at most " +
+                    MAXIMUM_MULTIPART_PART_SIZE + " bytes.", /*cause=*/ null);
         }
 
         String nonce = openUploadNonce(mpu);

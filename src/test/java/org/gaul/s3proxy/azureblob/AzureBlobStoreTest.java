@@ -48,18 +48,22 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.gaul.s3proxy.blobstore.Credentials;
+import org.gaul.s3proxy.blobstore.UploadNames;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import software.amazon.awssdk.services.s3.model.BucketVersioningStatus;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
  * Azure can answer a listing with no blobs and a continuation token onto ones
@@ -259,6 +263,29 @@ public final class AzureBlobStoreTest {
                                 .isEqualTo("NotImplemented");
                     });
         }
+    }
+
+    /**
+     * An Azure block stops at 4000 MiB, short of the 5 GiB part S3 takes, so
+     * a part between the two is refused EntityTooLarge before dialing the
+     * service.  It was an IllegalArgumentException, a 500.
+     */
+    @Test
+    public void testPartLargerThanABlockIsEntityTooLarge() {
+        var mpu = new MultipartUpload(UploadNames.newUploadId("key"),
+                CreateMultipartUploadRequest.builder().bucket("container")
+                        .key("key").build());
+        assertThatThrownBy(() -> store(/*versioning=*/ false)
+                .uploadMultipartPart(mpu, UploadPartRequest.builder()
+                        .bucket("container").key("key").uploadId(mpu.id())
+                        .partNumber(1)
+                        .contentLength(4000L * 1024 * 1024 + 1).build(),
+                        new ByteArrayInputStream(new byte[0])))
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("EntityTooLarge");
+                });
     }
 
     /**

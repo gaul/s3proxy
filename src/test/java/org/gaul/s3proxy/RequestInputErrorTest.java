@@ -18,10 +18,13 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.gaul.s3proxy.auth.AuthenticationType;
@@ -75,6 +78,45 @@ public final class RequestInputErrorTest {
                 assertThat(response.body()).as(query)
                         .contains("<Code>NotImplemented</Code>");
             }
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    /**
+     * S3 takes a part of at most 5 GiB and refuses a larger one before
+     * reading it.  Nothing limited a part: a store took what it could, and
+     * Azure, whose blocks stop at 4000 MiB, answered a 500.  The body is
+     * declared and never sent, since the refusal must not wait for it.
+     */
+    @Test
+    public void testPartLargerThanS3TakesIsEntityTooLarge() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.NONE);
+        try {
+            String created = httpClient.send(HttpRequest.newBuilder(
+                    URI.create("http://127.0.0.1:" + proxy.getPort() +
+                            "/bucket/key?uploads"))
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(),
+                    HttpResponse.BodyHandlers.ofString()).body();
+            String uploadId = created.substring(
+                    created.indexOf("<UploadId>") + "<UploadId>".length(),
+                    created.indexOf("</UploadId>"));
+            String answer;
+            try (var socket = new Socket(InetAddress.getLoopbackAddress(),
+                    proxy.getPort())) {
+                socket.setSoTimeout(10_000);
+                socket.getOutputStream().write((
+                        "PUT /bucket/key?partNumber=1&uploadId=" + uploadId +
+                        " HTTP/1.1\r\nHost: 127.0.0.1\r\n" +
+                        "Content-Length: " + (5L * 1024 * 1024 * 1024 + 1) +
+                        "\r\nConnection: close\r\n\r\n")
+                        .getBytes(StandardCharsets.US_ASCII));
+                socket.getOutputStream().flush();
+                answer = new String(socket.getInputStream().readAllBytes(),
+                        StandardCharsets.UTF_8);
+            }
+            assertThat(answer).startsWith("HTTP/1.1 400 ")
+                    .contains("<Code>EntityTooLarge</Code>");
         } finally {
             proxy.stop();
         }
