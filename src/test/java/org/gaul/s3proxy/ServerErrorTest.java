@@ -54,6 +54,7 @@ public final class ServerErrorTest {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ListAppender<ILoggingEvent> logged = new ListAppender<>();
     private Logger jettyLogger;
+    private Logger handlerLogger;
 
     @BeforeEach
     public void setUp() throws InterruptedException {
@@ -66,15 +67,18 @@ public final class ServerErrorTest {
             Thread.sleep(10);
             factory = LoggerFactory.getILoggerFactory();
         }
-        jettyLogger = ((LoggerContext) factory).getLogger(
-                S3ProxyHandlerJetty.class);
+        var context = (LoggerContext) factory;
+        jettyLogger = context.getLogger(S3ProxyHandlerJetty.class);
+        handlerLogger = context.getLogger(S3ProxyHandler.class);
         logged.start();
         jettyLogger.addAppender(logged);
+        handlerLogger.addAppender(logged);
     }
 
     @AfterEach
     public void tearDown() {
         jettyLogger.detachAppender(logged);
+        handlerLogger.detachAppender(logged);
     }
 
     /**
@@ -139,6 +143,22 @@ public final class ServerErrorTest {
         assertThat(response.body())
                 .contains("<Error><Code>InternalError</Code>")
                 .doesNotContain("CompleteMultipartUploadResult");
+    }
+
+    /**
+     * A store's 5xx during that late completion is answered in the body,
+     * as its own code, and logged as a warning as it would have been
+     * before the response was committed.  It was logged only at debug.
+     */
+    @Test
+    public void testLateServerErrorIsLogged() throws Exception {
+        var failure = S3Exceptions.serviceUnavailable(/*cause=*/ null);
+
+        HttpResponse<String> response = completeFailingWith(() -> failure);
+
+        assertThat(response.body())
+                .contains("<Error><Code>ServiceUnavailable</Code>");
+        assertThat(warningsFor(failure)).isEqualTo(1);
     }
 
     private long warningsFor(Throwable failure) {

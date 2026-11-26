@@ -7654,8 +7654,20 @@ public class S3ProxyHandler {
                 String storeCode = storeError == null ? null :
                         S3Exceptions.errorCode(storeError);
                 if (storeError != null && storeCode != null) {
-                    logger.debug("completeMultipartUpload failed after the " +
-                            "response was committed", exception.get());
+                    // As the Jetty handler logs a store's failure answered
+                    // before the response was committed: a 5xx is the
+                    // operator's to see, a refusal of the request is not.
+                    if (storeError.statusCode() >= 500 &&
+                            storeError.statusCode() !=
+                                    HttpServletResponse.SC_NOT_IMPLEMENTED) {
+                        logger.warn("completeMultipartUpload failed after" +
+                                " the response was committed",
+                                exception.get());
+                    } else {
+                        logger.debug("completeMultipartUpload failed after" +
+                                " the response was committed",
+                                exception.get());
+                    }
                     lateCode = storeCode;
                     String storeMessage =
                             storeError.awsErrorDetails().errorMessage();
