@@ -200,7 +200,6 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
     private static final int S3_LIST_LIMIT = 1000;
     private static final int STATUS_OK = 200;
     private static final int STATUS_CREATED = 201;
-    private static final int STATUS_BAD_REQUEST = 400;
     private static final int STATUS_UNAUTHORIZED = 401;
     private static final int STATUS_FORBIDDEN = 403;
     private static final int STATUS_NOT_FOUND = 404;
@@ -1220,7 +1219,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
             // a client does not retry, whatever had gone wrong.
             if (contentMD5 != null && !contentMD5.equals(
                     HashCode.fromBytes(sent.digest()))) {
-                throw S3Exceptions.fromStatusCode(STATUS_BAD_REQUEST);
+                throw S3Exceptions.badDigest(/*cause=*/ null);
             }
             throw new RuntimeException(
                     "could not write object " + metadata.name());
@@ -1914,7 +1913,7 @@ public final class OpenStackSwiftBlobStore implements BlobStore {
         for (var part : sorted) {
             var candidates = segmentsByPartNumber.get(part.partNumber());
             if (candidates == null) {
-                throw S3Exceptions.fromStatusCode(400);
+                throw S3Exceptions.invalidPart(part.partNumber());
             }
             resolved.add(chooseSegment(candidates, part.eTag()));
         }

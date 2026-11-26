@@ -4370,6 +4370,9 @@ public final class AwsSdkTest {
     public void testReservedSlashBlobNameRejected() throws Exception {
         // The reserved name backing "/" must not be addressable as an ordinary
         // key, or a client could interfere with the "/" object's storage.
+        // InvalidArgument, as for the store's other reserved names: the
+        // bare 400 it was had the frontend answer BadDigest, which a client
+        // retries.
         assumeTrue(Quirks.NIO2_BACKENDS.contains(blobStoreType));
 
         try {
@@ -4379,6 +4382,8 @@ public final class AwsSdkTest {
             Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
         } catch (S3Exception e) {
             assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("InvalidArgument");
         }
     }
 

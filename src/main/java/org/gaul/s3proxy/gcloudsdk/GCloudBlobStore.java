@@ -1590,7 +1590,7 @@ public final class GCloudBlobStore implements BlobStore {
             // "invalid".  Only surface BadDigest when we actually asked GCS to
             // validate the checksum; other 400s are unrelated client errors.
             if (se.getCode() == 400 && hash != null) {
-                throw S3Exceptions.fromStatusCode(400, se);
+                throw S3Exceptions.badDigest(se);
             }
             throw translate(se, container, null);
         } catch (IOException ioe) {
@@ -2621,9 +2621,9 @@ public final class GCloudBlobStore implements BlobStore {
             md5Hash = digest.digest();
         } catch (StorageException se) {
             // As in putBlob: GCS reports the validation md5Match asked for
-            // as a generic 400, which the frontend answers as BadDigest.
+            // as a generic 400.
             if (se.getCode() == 400 && contentMD5 != null) {
-                throw S3Exceptions.fromStatusCode(400, se);
+                throw S3Exceptions.badDigest(se);
             }
             throw translate(se, mpu.containerName(), mpu.blobName());
         } catch (IOException ioe) {

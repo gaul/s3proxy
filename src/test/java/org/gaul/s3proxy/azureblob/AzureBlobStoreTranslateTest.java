@@ -78,9 +78,8 @@ public final class AzureBlobStoreTranslateTest {
     }
 
     /**
-     * Naming the version, the same codeless 400 is S3's InvalidArgument, not
-     * the BadDigest a bare 400 becomes -- which tells a client to retry a
-     * request that can never succeed.
+     * Naming the version, the same codeless 400 is S3's InvalidArgument, as
+     * S3 answers a versionId it cannot parse.
      */
     @Test
     public void testMalformedVersionIdIsInvalidArgument() {
@@ -131,8 +130,11 @@ public final class AzureBlobStoreTranslateTest {
     public void testErrorWithoutCodeFallsBackToStatus() {
         assertThat(AzureBlobStore.translate(
                 azureException(400, /*errorCode=*/ null), "container", "key"))
-                .isInstanceOfSatisfying(S3Exception.class,
-                        e -> assertThat(e.statusCode()).isEqualTo(400));
+                .isInstanceOfSatisfying(S3Exception.class, e -> {
+                    assertThat(e.statusCode()).isEqualTo(400);
+                    assertThat(e.awsErrorDetails().errorCode())
+                            .isEqualTo("InvalidRequest");
+                });
 
         assertThat(AzureBlobStore.translate(
                 azureException(403, /*errorCode=*/ null), "container", "key"))
@@ -248,6 +250,29 @@ public final class AzureBlobStoreTranslateTest {
                     assertThat(e.awsErrorDetails().errorCode())
                             .isEqualTo("OperationAborted");
                 });
+    }
+
+    /**
+     * Azure's 400s each have an S3 code.  They were bare 400s, which the
+     * frontend answered BadDigest -- a damaged body, which a client
+     * retries -- whatever Azure had refused.
+     */
+    @Test
+    public void testBadRequestsNameTheirCode() {
+        for (var entry : List.of(
+                Map.entry("InvalidOperation", "InvalidRequest"),
+                Map.entry("InvalidQueryParameterValue", "InvalidArgument"),
+                Map.entry("Md5Mismatch", "BadDigest"),
+                Map.entry("InvalidMd5", "InvalidDigest"))) {
+            assertThat(AzureBlobStore.translate(
+                    azureException(400, entry.getKey()), "container", "key"))
+                    .as(entry.getKey())
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(400);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo(entry.getValue());
+                    });
+        }
     }
 
     /** An Azure service error as the SDK would raise it. */

@@ -3488,9 +3488,8 @@ public final class AzureBlobStore implements BlobStore {
 
             if (contentMD5 != null) {
                 if (!MessageDigest.isEqual(md5Hash, contentMD5.asBytes())) {
-                    // Not reached unless the service skipped the check; a
-                    // bare 400 is what the frontend reports as BadDigest.
-                    throw S3Exceptions.fromStatusCode(400);
+                    // not reached unless the service skipped the check
+                    throw S3Exceptions.badDigest(/*cause=*/ null);
                 }
             }
 
@@ -3519,8 +3518,7 @@ public final class AzureBlobStore implements BlobStore {
         byte[] md5Hash = MD5.newDigest().digest();
         if (contentMD5 != null &&
                 !MessageDigest.isEqual(md5Hash, contentMD5)) {
-            // a bare 400 is what the frontend reports as BadDigest
-            throw S3Exceptions.fromStatusCode(400);
+            throw S3Exceptions.badDigest(/*cause=*/ null);
         }
         try {
             asyncClient.stageBlock(makeEmptyPartBlockId(nonce, partNumber),
@@ -4027,13 +4025,13 @@ public final class AzureBlobStore implements BlobStore {
                 return S3Exceptions.fromStatusCode(403, bse);
             }
             if (status == 400 && versionId != null) {
-                // S3 answers a versionId it cannot parse with InvalidArgument;
-                // a bare 400 would become BadDigest, which says to retry.
+                // S3 answers a versionId it cannot parse with InvalidArgument
                 return S3Exceptions.invalidArgument(
                         "Invalid version id specified");
             }
             if (status == 400) {
-                return S3Exceptions.fromStatusCode(400, bse);
+                return S3Exceptions.withCode(400, "InvalidRequest",
+                        "The backend refused the request as malformed.", bse);
             }
             return bse;
         }
@@ -4054,19 +4052,27 @@ public final class AzureBlobStore implements BlobStore {
         } else if (code.equals(BlobErrorCode.BLOB_ALREADY_EXISTS)) {
             return S3Exceptions.fromStatusCode(412, bse);
         } else if (code.equals(BlobErrorCode.INVALID_OPERATION)) {
-            return S3Exceptions.fromStatusCode(400, bse);
+            // Asked of a blob or container that cannot do it.  These used
+            // to be a bare 400, which the frontend answered BadDigest: a
+            // checksum failure, which a client may retry.
+            return S3Exceptions.withCode(400, "InvalidRequest",
+                    "The backend refused the operation.", bse);
         } else if (code.equals(BlobErrorCode.INVALID_QUERY_PARAMETER_VALUE)) {
             // A query parameter Azure rejects by name.  S3 answers such a
             // request 400 rather than the 500 an unmapped Azure error would
             // otherwise become.
-            return S3Exceptions.fromStatusCode(400, bse);
-        } else if (code.equals(BlobErrorCode.MD5MISMATCH) ||
-                code.equals(BlobErrorCode.INVALID_MD5)) {
+            return S3Exceptions.withCode(400, "InvalidArgument",
+                    "Invalid query parameter value.", bse);
+        } else if (code.equals(BlobErrorCode.MD5MISMATCH)) {
             // The Content-MD5 the caller sent named a body other than the one
-            // that arrived, or was not an MD5 at all.  Both are the caller's
-            // mistake and S3 answers 400; passing the Azure exception on
-            // would report the caller's own bad digest as a server error.
-            return S3Exceptions.fromStatusCode(400, bse);
+            // that arrived.  The caller's mistake and S3 answers 400; passing
+            // the Azure exception on would report the caller's own bad
+            // digest as a server error.
+            return S3Exceptions.badDigest(bse);
+        } else if (code.equals(BlobErrorCode.INVALID_MD5)) {
+            // a Content-MD5 that is not an MD5 at all
+            return S3Exceptions.withCode(400, "InvalidDigest",
+                    "The Content-MD5 you specified is not valid.", bse);
         } else if (code.equals(BlobErrorCode.INVALID_RESOURCE_NAME)) {
             // Azure names containers more narrowly than S3 names buckets: no
             // dots, no two hyphens in a row.  S3 refuses a name it will not

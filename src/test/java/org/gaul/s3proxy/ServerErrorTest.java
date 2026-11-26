@@ -112,12 +112,13 @@ public final class ServerErrorTest {
     /**
      * A backend failure that carries only a status, no S3 error code, is
      * answered with S3's document for that status.  It was the status alone
-     * with no body, which an S3 client reports as an unknown error.
+     * with no body, which an S3 client reports as an unknown error.  A bare
+     * 400 is InvalidRequest: it was BadDigest, which a client retries.
      */
     @Test
     public void testStatusWithoutCodeIsAnErrorDocument() throws Exception {
-        for (var entry : Map.of(500, "InternalError", 501, "NotImplemented",
-                503, "ServiceUnavailable").entrySet()) {
+        for (var entry : Map.of(400, "InvalidRequest", 500, "InternalError",
+                501, "NotImplemented", 503, "ServiceUnavailable").entrySet()) {
             HttpResponse<String> response = listFailingWith(
                     () -> S3Exceptions.fromStatusCode(entry.getKey()));
 

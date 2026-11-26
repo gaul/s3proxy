@@ -232,8 +232,13 @@ final class S3ProxyHandlerJetty extends HttpServlet {
         case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
             sendErrorResponse(request, response,
                     S3ErrorCode.METHOD_NOT_ALLOWED);
-        // Swift returns 422 Unprocessable Entity
-        case HttpServletResponse.SC_BAD_REQUEST, 422 -> sendErrorResponse(
+        // A store names BadDigest when that is what it means; a bare 400
+        // only says the request was refused, and answered BadDigest it told
+        // the client to retry, e.g. a key the store reserves, for good.
+        case HttpServletResponse.SC_BAD_REQUEST -> sendErrorResponse(
+                request, response, S3ErrorCode.INVALID_REQUEST);
+        // Swift returns 422 Unprocessable Entity for an ETag mismatch
+        case 422 -> sendErrorResponse(
                 request, response, S3ErrorCode.BAD_DIGEST);
         // Backends report authorization failures as 403; surface a proper
         // AccessDenied error document rather than a bare 403 status.

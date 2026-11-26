@@ -192,8 +192,8 @@ public final class S3Exceptions {
 
     /**
      * A 400 saying what about the request was wrong.  A status code alone
-     * would not: the frontend answers a bare 400 with BadDigest, which tells
-     * the caller to retry a request that will never be accepted.
+     * would not: the frontend answers a bare 400 with InvalidRequest, which
+     * names no argument.
      */
     public static S3Exception invalidArgument(String message) {
         return (S3Exception) S3Exception.builder()
@@ -216,6 +216,32 @@ public final class S3Exceptions {
                 .awsErrorDetails(details(400, "InvalidRequest", message,
                         Map.of()))
                 .build();
+    }
+
+    /**
+     * The 400 BadDigest for a body that does not hash to the Content-MD5
+     * the caller sent.  Named rather than left to a bare 400, which the
+     * frontend answers InvalidRequest: a client may retry BadDigest, since
+     * the body may have been damaged on the way, and must not retry a
+     * request refused for what it asked.
+     */
+    public static S3Exception badDigest(@Nullable Throwable cause) {
+        return withCode(400, "BadDigest",
+                "The Content-MD5 you specified did not match what we" +
+                " received.", cause);
+    }
+
+    /**
+     * The 400 InvalidPart for a part a completion names that the upload
+     * does not hold.
+     */
+    public static S3Exception invalidPart(int partNumber) {
+        return withCode(400, "InvalidPart",
+                "One or more of the specified parts could not be found." +
+                "  The part may not have been uploaded, or the specified" +
+                " entity tag may not match the part's entity tag.  Part " +
+                partNumber + " is not among the upload's parts.",
+                /*cause=*/ null);
     }
 
     /**

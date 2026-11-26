@@ -1504,7 +1504,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
                 var expectedHashCode = metadata.contentMD5();
                 if (expectedHashCode != null &&
                         !actualHashCode.equals(expectedHashCode)) {
-                    throw returnResponseException(400);
+                    throw S3Exceptions.badDigest(/*cause=*/ null);
                 }
                 // The ETag of an object under a customer key is no MD5 of
                 // its data, as on S3.  Listings of objects, versions and
@@ -3362,7 +3362,7 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (meta == null) {
                 // S3 returns InvalidPart (400) when the manifest references
                 // a part that was never uploaded.
-                throw returnResponseException(400);
+                throw S3Exceptions.invalidPart(part.partNumber());
             }
             contentLength += requireNonNull(meta.contentLength());
             partNames.add(partName);
@@ -4532,7 +4532,8 @@ public abstract class AbstractNio2BlobStore implements BlobStore {
             if (path.startsWith(slashBlob) ||
                     name.equals(SLASH_BLOB_NAME) ||
                     name.startsWith(SLASH_BLOB_NAME + "/")) {
-                throw returnResponseException(400);
+                throw S3Exceptions.invalidArgument("The key " +
+                        SLASH_BLOB_NAME + " is reserved for the key \"/\".");
             }
             if (path.startsWith(containerPath.resolve(TEMPORARY_DIR)) ||
                     name.equals(TEMPORARY_DIR) ||
