@@ -698,7 +698,87 @@ public final class PostObjectTest {
                                 " filename=\"x\"\r\n\r\ntruncated"))
                         .build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(response.body()).contains("<Code>InvalidRequest</Code>");
+        assertThat(response.body())
+                .contains("<Code>MalformedPOSTRequest</Code>");
+    }
+
+    /**
+     * The refusals of a form built wrong say what is wrong with it, as S3's
+     * do.  Each was a 400 with no body, which a client reports as an
+     * unknown error.
+     */
+    @Test
+    public void testWrongEnclosureIsPreconditionFailed() throws Exception {
+        for (String contentType : List.of("text/plain",
+                "application/octet-stream; boundary=" + BOUNDARY)) {
+            HttpResponse<String> response = httpClient.send(
+                    HttpRequest.newBuilder(URI.create(bucketUri))
+                            .header("Content-Type", contentType)
+                            .POST(HttpRequest.BodyPublishers.ofString("x"))
+                            .build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).as(contentType).isEqualTo(412);
+            assertThat(response.body()).as(contentType)
+                    .contains("<Code>PreconditionFailed</Code>")
+                    .contains("<Condition>Bucket POST must be of the" +
+                            " enclosure-type multipart/form-data</Condition>");
+        }
+    }
+
+    @Test
+    public void testMissingBoundaryIsMalformed() throws Exception {
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri))
+                        .header("Content-Type", "multipart/form-data")
+                        .POST(HttpRequest.BodyPublishers.ofString("x"))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>MalformedPOSTRequest</Code>");
+    }
+
+    @Test
+    public void testMissingKeyFieldIsNamed() throws Exception {
+        HttpResponse<String> response = postUnsigned(
+                "Content-Type", "text/plain");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>InvalidArgument</Code>")
+                .contains("<ArgumentName>key</ArgumentName>");
+    }
+
+    @Test
+    public void testMissingFileIsNamed() throws Exception {
+        String form = "--" + BOUNDARY + "\r\nContent-Disposition: form-data;" +
+                " name=\"key\"\r\n\r\nfoo.txt\r\n" +
+                "--" + BOUNDARY + "--\r\n";
+        HttpResponse<String> response = httpClient.send(
+                HttpRequest.newBuilder(URI.create(bucketUri))
+                        .header("Content-Type",
+                                "multipart/form-data; boundary=" + BOUNDARY)
+                        .POST(HttpRequest.BodyPublishers.ofString(form))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>InvalidArgument</Code>")
+                .contains("<ArgumentName>file</ArgumentName>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
+    }
+
+    @Test
+    public void testUnknownAlgorithmIsNamed() throws Exception {
+        String policy = policy("{\"bucket\": \"" + containerName + "\"}");
+        HttpResponse<String> response = postUnsigned(
+                "key", "foo.txt",
+                "x-amz-algorithm", "AWS4-HMAC-SHA512",
+                "x-amz-credential", IDENTITY,
+                "policy", policy,
+                "x-amz-signature", sign(policy));
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body())
+                .contains("<Code>InvalidArgument</Code>")
+                .contains("<ArgumentName>X-Amz-Algorithm</ArgumentName>")
+                .contains("<ArgumentValue>AWS4-HMAC-SHA512</ArgumentValue>");
+        assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();
     }
 
     /**
@@ -718,8 +798,10 @@ public final class PostObjectTest {
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isTrue();
         blobStore.removeBlob(containerName, "foo.txt");
 
-        assertThat(postWithBoundary("a".repeat(71)).statusCode())
-                .isEqualTo(400);
+        HttpResponse<String> overlong = postWithBoundary("a".repeat(71));
+        assertThat(overlong.statusCode()).isEqualTo(400);
+        assertThat(overlong.body())
+                .contains("<Code>MalformedPOSTRequest</Code>");
         assertThat(postWithBoundary("\"" + "a".repeat(71) + "\"")
                 .statusCode()).isEqualTo(400);
         assertThat(blobStore.blobExists(containerName, "foo.txt")).isFalse();

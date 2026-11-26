@@ -971,8 +971,8 @@ public class S3ProxyHandler {
                     anonymousGrant != null ? anonymousGrant.blobStore() :
                             defaultBlobStore, ctx);
             // The bucket becomes a metrics label only now, and only if the
-            // request was not refused, be it by an exception or, as
-            // handlePostBlob does, by a status alone.  Until then it is a
+            // request was not refused, be it by an exception or by a status
+            // alone.  Until then it is a
             // name that a client without credentials chose and that need
             // not exist, and every distinct label is kept for the life of
             // the process.
@@ -2601,8 +2601,7 @@ public class S3ProxyHandler {
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            throw invalidCannedAcl(cannedAcl);
         }
 
         byte[] body = readXmlRequestBody(request, is);
@@ -2757,8 +2756,7 @@ public class S3ProxyHandler {
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            throw invalidCannedAcl(cannedAcl);
         }
 
         byte[] body = readXmlRequestBody(request, is);
@@ -5845,8 +5843,7 @@ public class S3ProxyHandler {
             } else if (CANNED_ACLS.contains(cannedAcl)) {
                 throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
             } else {
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-                return;
+                throw invalidCannedAcl(cannedAcl);
             }
         }
 
@@ -6185,8 +6182,7 @@ public class S3ProxyHandler {
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            throw invalidCannedAcl(cannedAcl);
         }
 
         var putRequest = PutObjectRequest.builder()
@@ -6376,17 +6372,19 @@ public class S3ProxyHandler {
             HttpServletResponse response, InputStream is,
             BlobStore anonymousBlobStore, String containerName)
             throws IOException {
-        String contentTypeHeader = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        if (contentTypeHeader == null) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
-        }
+        // Each refusal below was a 400 with no body, which a client reports
+        // as an unknown error; these are S3's answers.
+        String contentTypeHeader = Strings.nullToEmpty(
+                request.getHeader(HttpHeaders.CONTENT_TYPE));
         List<String> contentTypeParts = Splitter.on(';').splitToList(
                 contentTypeHeader);
-        if (contentTypeParts.size() < 2 || !contentTypeParts.get(0).trim()
-                .equalsIgnoreCase("multipart/form-data")) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+        if (!contentTypeParts.get(0).trim().equalsIgnoreCase(
+                "multipart/form-data")) {
+            throw new S3ProxyException(S3ErrorCode.PRECONDITION_FAILED,
+                    "At least one of the pre-conditions you specified did" +
+                    " not hold", (Throwable) null, Map.of("Condition",
+                            "Bucket POST must be of the enclosure-type" +
+                            " multipart/form-data"));
         }
         String boundary = null;
         for (int i = 1; i < contentTypeParts.size(); i++) {
@@ -6404,8 +6402,7 @@ public class S3ProxyHandler {
         }
         if (Strings.isNullOrEmpty(boundary) ||
                 boundary.length() > MAX_FORM_BOUNDARY_LENGTH) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            throw malformedPostRequest(/*cause=*/ null);
         }
 
         // Every field, lowercased, since both a policy condition and the form
@@ -6576,9 +6573,20 @@ public class S3ProxyHandler {
         String algorithm = fields.get("x-amz-algorithm");
         String contentType = fields.get("content-type");
 
-        if (blobName == null || payload == null) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+        if (blobName == null) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "Bucket POST must contain a field named 'key'.  If it is" +
+                    " specified, please check the order of the fields.",
+                    (Throwable) null, ImmutableMap.of(
+                            "ArgumentName", "key",
+                            "ArgumentValue", ""));
+        }
+        if (payload == null) {
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "POST requires exactly one file upload per request.",
+                    (Throwable) null, ImmutableMap.of(
+                            "ArgumentName", "file",
+                            "ArgumentValue", "0"));
         }
         // S3 has no empty key, and no other request can name one: a URI
         // without a key is the bucket.  A store refuses it, but a middleware
@@ -6631,8 +6639,12 @@ public class S3ProxyHandler {
                     " Credential=" + identity +
                     ", Signature=" + signature;
         } else {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            // as S3 answers a presigned URL naming another algorithm
+            throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
+                    "X-Amz-Algorithm only supports \"AWS4-HMAC-SHA256\"",
+                    (Throwable) null, ImmutableMap.of(
+                            "ArgumentName", "X-Amz-Algorithm",
+                            "ArgumentValue", algorithm));
         }
 
         try {
@@ -6750,9 +6762,25 @@ public class S3ProxyHandler {
             return new S3ProxyException(S3ErrorCode.MAX_MESSAGE_LENGTH_EXCEEDED,
                     cause);
         }
-        return new S3ProxyException(S3ErrorCode.INVALID_REQUEST,
-                "The body of your POST request is not well-formed" +
-                " multipart/form-data.", cause);
+        return malformedPostRequest(cause);
+    }
+
+    /** A form POST whose body is not the multipart/form-data it claims. */
+    private static S3ProxyException malformedPostRequest(
+            @Nullable Throwable cause) {
+        return new S3ProxyException(S3ErrorCode.MALFORMED_P_O_S_T_REQUEST,
+                cause);
+    }
+
+    /**
+     * S3's answer to an x-amz-acl that names no canned ACL: it was a bare
+     * 400, which said only that the request was refused.
+     */
+    private static S3ProxyException invalidCannedAcl(String cannedAcl) {
+        return new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT, "",
+                (Throwable) null, ImmutableMap.of(
+                        "ArgumentName", AwsHttpHeaders.ACL,
+                        "ArgumentValue", cannedAcl));
     }
 
     /**
@@ -7042,8 +7070,7 @@ public class S3ProxyHandler {
         } else if (CANNED_ACLS.contains(cannedAcl)) {
             throw new S3ProxyException(S3ErrorCode.NOT_IMPLEMENTED);
         } else {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            throw invalidCannedAcl(cannedAcl);
         }
         if (access == ObjectCannedACL.PUBLIC_READ) {
             createRequest.acl(ObjectCannedACL.PUBLIC_READ);

@@ -92,6 +92,9 @@ public enum S3ErrorCode {
     MALFORMED_A_C_L_ERROR(HttpServletResponse.SC_BAD_REQUEST,
             "The XML you provided was not well-formed or did not validate" +
             " against our published schema."),
+    MALFORMED_P_O_S_T_REQUEST(HttpServletResponse.SC_BAD_REQUEST,
+            "The body of your POST request is not well-formed" +
+            " multipart/form-data."),
     MALFORMED_POLICY_DOCUMENT(HttpServletResponse.SC_BAD_REQUEST,
             "The policy document is malformed or uses unsupported" +
             " elements."),

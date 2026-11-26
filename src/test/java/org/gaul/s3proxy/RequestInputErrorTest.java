@@ -143,6 +143,46 @@ public final class RequestInputErrorTest {
         }
     }
 
+    /**
+     * An x-amz-acl naming no canned ACL is S3's InvalidArgument naming the
+     * header and its value, on every request that takes one.  It was a bare
+     * 400, answered InvalidRequest with nothing to say what was refused.
+     */
+    @Test
+    public void testUnknownCannedAclIsNamed() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.NONE);
+        try {
+            String bucket = "http://127.0.0.1:" + proxy.getPort() + "/bucket";
+            assertThat(send(HttpRequest.newBuilder(URI.create(bucket +
+                    "/key")).PUT(HttpRequest.BodyPublishers.ofString("x")))
+                    .statusCode()).isEqualTo(200);
+            for (var request : List.of(
+                    HttpRequest.newBuilder(URI.create(bucket + "/new"))
+                            .PUT(HttpRequest.BodyPublishers.ofString("x")),
+                    HttpRequest.newBuilder(URI.create(bucket + "/copy"))
+                            .header("x-amz-copy-source", "/bucket/key")
+                            .PUT(HttpRequest.BodyPublishers.noBody()),
+                    HttpRequest.newBuilder(URI.create(bucket + "/key?acl"))
+                            .PUT(HttpRequest.BodyPublishers.noBody()),
+                    HttpRequest.newBuilder(URI.create(bucket + "?acl"))
+                            .PUT(HttpRequest.BodyPublishers.noBody()),
+                    HttpRequest.newBuilder(URI.create(bucket + "/new?uploads"))
+                            .POST(HttpRequest.BodyPublishers.noBody()))) {
+                HttpResponse<String> response = send(
+                        request.header("x-amz-acl", "bogus"));
+                String what = response.request().method() + " " +
+                        response.request().uri();
+                assertThat(response.statusCode()).as(what).isEqualTo(400);
+                assertThat(response.body()).as(what)
+                        .contains("<Code>InvalidArgument</Code>")
+                        .contains("<ArgumentName>x-amz-acl</ArgumentName>" +
+                                "<ArgumentValue>bogus</ArgumentValue>");
+            }
+        } finally {
+            proxy.stop();
+        }
+    }
+
     /** Completes the upload naming each part number with the one ETag. */
     private HttpResponse<String> complete(String object, String uploadId,
             String eTag, int... partNumbers) throws Exception {
