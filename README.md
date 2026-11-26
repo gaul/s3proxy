@@ -281,9 +281,7 @@ status.  Set `s3proxy.metrics.enabled=true`; the wiki has
 
 ## OpenTelemetry tracing
 
-The standalone application can export inbound S3 request traces without a
-Java agent. Export is disabled by default. To send traces to an OTLP HTTP
-collector, set:
+Export inbound S3 request traces without a Java agent (disabled by default):
 
 ```sh
 OTEL_TRACES_EXPORTER=otlp
@@ -291,26 +289,17 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-Use environment variables for the application process or container, or the
-equivalent `-Dotel.*` JVM system properties. The default service name is
-`s3proxy`; override it with `OTEL_SERVICE_NAME`.
+The service name defaults to `s3proxy`; override it with `OTEL_SERVICE_NAME`.
+Equivalent `-Dotel.*` JVM properties are supported.
 
-The OpenTelemetry servlet instrumentation manages HTTP server spans, incoming
-W3C trace context, sampling, and errors. S3Proxy adds S3 operation names such
-as `GetObject`. URL path and query attributes are redacted to empty strings;
-authentication headers are not captured. The instrumentation suppresses
-duplicate server spans when a Java agent has already instrumented the request.
-Requests rejected by Jetty before reaching the servlet filter are not traced.
+Spans use S3 operation names. URL paths and queries are redacted; authentication
+headers are not captured. Backend spans and log capture need separate instrumentation.
 
-Applications embedding S3Proxy can pass their own `OpenTelemetry` instance
-through `S3Proxy.builder().openTelemetry(openTelemetry)`. The caller owns its
-SDK lifecycle; stopping the proxy does not close it.
+Set `OTEL_METRICS_EXPORTER=otlp` for standard HTTP metrics. Existing Prometheus
+metrics and console logging are unchanged.
 
-Prometheus metrics and console logging are unchanged. The servlet
-instrumentation also supplies standard HTTP server metrics when explicitly
-enabled with `OTEL_METRICS_EXPORTER=otlp`; metrics and log export otherwise
-default to `none`. Backend client spans and OTLP log capture still require
-separate instrumentation, such as the Java agent.
+Embedded applications can use `S3Proxy.builder().openTelemetry(openTelemetry)`
+and retain ownership of the SDK lifecycle.
 
 ## CORS
 
