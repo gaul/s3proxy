@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.regex.Matcher;
@@ -37,6 +38,21 @@ import javax.net.ssl.SSLContext;
 
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
@@ -219,7 +235,8 @@ public final class S3Proxy {
                 builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew, metrics,
                 builder.stsEnabled ?
-                        new StsHandler(builder.stsMaxDuration) : null);
+                    new StsHandler(builder.stsMaxDuration) : null,
+                builder.openTelemetry);
         handler.getHandler().setPreAuthBodyBudget(new PreAuthBodyBudget(
                 builder.preAuthBodyBudget >= 0 ? builder.preAuthBodyBudget :
                         Math.max(Runtime.getRuntime().maxMemory() / 4,
@@ -329,6 +346,78 @@ public final class S3Proxy {
         }
     }
 
+    static final class Telemetry {
+        private static final TextMapGetter<HttpServletRequest> GETTER =
+                new TextMapGetter<>() {
+                    @Override
+                    @Nullable public String get(
+                            @Nullable HttpServletRequest request, String key) {
+                        return request == null ? null : request.getHeader(key);
+                    }
+                };
+
+        private final OpenTelemetry openTelemetry;
+        private final Tracer tracer;
+
+        Telemetry(OpenTelemetry openTelemetry) {
+            this.openTelemetry = openTelemetry;
+            tracer = openTelemetry.getTracer("org.gaul.s3proxy");
+        }
+
+        static OpenTelemetrySdk create() {
+            return AutoConfiguredOpenTelemetrySdk.builder()
+                    .addPropertiesSupplier(() -> Map.of(
+                            "otel.service.name", "s3proxy",
+                            "otel.traces.exporter", "none",
+                            "otel.metrics.exporter", "none",
+                            "otel.logs.exporter", "none"))
+                    .disableShutdownHook()
+                    .build().getOpenTelemetrySdk();
+        }
+
+        Span start(HttpServletRequest request) {
+            String method = switch (request.getMethod()) {
+            case "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST",
+                    "PUT", "TRACE" -> request.getMethod();
+            default -> "_OTHER";
+            };
+            Context parent = openTelemetry.getPropagators()
+                    .getTextMapPropagator().extract(Context.root(), request,
+                            GETTER);
+            return tracer.spanBuilder(method)
+                    .setSpanKind(SpanKind.SERVER)
+                    .setParent(parent)
+                    .setAttribute(HttpAttributes.HTTP_REQUEST_METHOD, method)
+                    .setAttribute(UrlAttributes.URL_SCHEME, request.getScheme())
+                    .startSpan();
+        }
+
+        static void end(Span span, HttpServletResponse response,
+                S3ProxyHandler.RequestContext context,
+                @Nullable Throwable failure) {
+            var operation = context.getOperation();
+            if (operation != null) {
+                span.updateName(operation.getValue());
+                span.setAttribute("s3.operation", operation.getValue());
+            }
+            int status = response.getStatus();
+            if (failure != null) {
+                span.recordException(failure);
+                span.setStatus(StatusCode.ERROR);
+                span.setAttribute("error.type", failure.getClass().getName());
+                if (!response.isCommitted()) {
+                    status = HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+                }
+            } else if (status >=
+                    HttpServletResponse.SC_INTERNAL_SERVER_ERROR) {
+                span.setStatus(StatusCode.ERROR);
+                span.setAttribute("error.type", Integer.toString(status));
+            }
+            span.setAttribute(HttpAttributes.HTTP_RESPONSE_STATUS_CODE, status);
+            span.end();
+        }
+    }
+
     public static final class Builder {
         // A dot that no quantifier follows.  The first two alternatives
         // consume \Q...\E quotations and escaped characters, whose dots are
@@ -364,6 +453,7 @@ public final class S3Proxy {
         private boolean metricsEnabled;
         private int metricsPort = -1;
         @Nullable private String metricsHost;
+        private OpenTelemetry openTelemetry = OpenTelemetry.noop();
         private long stopTimeout = STOP_TIMEOUT_MS;
         private boolean stsEnabled;
         private Duration stsMaxDuration = StsHandler.MAX_DURATION;
@@ -790,6 +880,12 @@ public final class S3Proxy {
 
         public Builder metricsHost(String metricsHost) {
             this.metricsHost = metricsHost;
+            return this;
+        }
+
+        /** Sets caller-owned telemetry, which stopping S3Proxy does not close. */
+        public Builder openTelemetry(OpenTelemetry openTelemetry) {
+            this.openTelemetry = requireNonNull(openTelemetry);
             return this;
         }
 

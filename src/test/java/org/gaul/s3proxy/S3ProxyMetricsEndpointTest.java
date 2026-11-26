@@ -26,12 +26,27 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.propagation.ContextPropagators;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
+import io.opentelemetry.semconv.HttpAttributes;
+import io.opentelemetry.semconv.UrlAttributes;
+
 import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
+import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import software.amazon.awssdk.services.s3.model.BucketCannedACL;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 
 public final class S3ProxyMetricsEndpointTest {
     // Prometheus text exposition marker in the metrics Content-Type; absent
@@ -48,6 +63,150 @@ public final class S3ProxyMetricsEndpointTest {
         }
         if (blobStore != null) {
             blobStore.close();
+        }
+    }
+
+    private static OpenTelemetrySdk telemetry(InMemorySpanExporter exporter) {
+        return OpenTelemetrySdk.builder()
+                .setTracerProvider(SdkTracerProvider.builder()
+                        .addSpanProcessor(SimpleSpanProcessor.create(exporter))
+                        .build())
+                .setPropagators(ContextPropagators.create(
+                        W3CTraceContextPropagator.getInstance()))
+                .build();
+    }
+
+    @Test
+    public void testTraceParentAndRequestIsolation() throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            s3Proxy = baseBuilder().openTelemetry(telemetry).build();
+            s3Proxy.start();
+            String base = "http://127.0.0.1:" + s3Proxy.getPort();
+            var client = HttpClient.newHttpClient();
+            assertThat(client.send(HttpRequest.newBuilder(URI.create(base))
+                    .header("traceparent", "00-" +
+                            "1234567890abcdef1234567890abcdef-" +
+                            "0123456789abcdef-01")
+                    .GET().build(), HttpResponse.BodyHandlers.ofString())
+                    .statusCode()).isEqualTo(200);
+            assertThat(get(base).statusCode()).isEqualTo(200);
+            s3Proxy.stop();
+
+            var spans = exporter.getFinishedSpanItems();
+            assertThat(spans).hasSize(2);
+            var parented = spans.get(0);
+            assertThat(parented.getTraceId())
+                    .isEqualTo("1234567890abcdef1234567890abcdef");
+            assertThat(parented.getParentSpanId())
+                    .isEqualTo("0123456789abcdef");
+            assertThat(parented.getKind()).isEqualTo(SpanKind.SERVER);
+            assertThat(parented.getName()).isEqualTo("ListBuckets");
+            assertThat(parented.getAttributes().get(
+                    HttpAttributes.HTTP_REQUEST_METHOD)).isEqualTo("GET");
+            assertThat(parented.getAttributes().get(
+                    HttpAttributes.HTTP_RESPONSE_STATUS_CODE)).isEqualTo(200L);
+            assertThat(parented.getAttributes().get(UrlAttributes.URL_FULL))
+                    .isNull();
+            assertThat(spans.get(1).getParentSpanContext().isValid()).isFalse();
+            assertThat(spans.get(1).getTraceId())
+                    .isNotEqualTo(parented.getTraceId());
+        }
+    }
+
+    @Test
+    public void testTraceClientError() throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            s3Proxy = baseBuilder().openTelemetry(telemetry).build();
+            s3Proxy.start();
+            assertThat(get("http://127.0.0.1:" + s3Proxy.getPort() +
+                    "/missing-bucket/private-object").statusCode())
+                    .isEqualTo(404);
+            s3Proxy.stop();
+
+            assertThat(exporter.getFinishedSpanItems()).singleElement()
+                    .satisfies(span -> {
+                        assertThat(span.getAttributes().get(
+                                HttpAttributes.HTTP_RESPONSE_STATUS_CODE))
+                                .isEqualTo(404L);
+                        assertThat(span.getStatus().getStatusCode())
+                                .isEqualTo(StatusCode.UNSET);
+                        assertThat(span.toString())
+                                .doesNotContain("private-object");
+                    });
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testTraceServerError(boolean unhandled) throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            var builder = baseBuilder();
+            s3Proxy = builder.blobStore(new ForwardingBlobStore(blobStore) {
+                @Override
+                public ListBucketsResponse list() {
+                    if (unhandled) {
+                        throw new AssertionError("test unhandled failure");
+                    }
+                    throw new IllegalStateException("test backend failure");
+                }
+            }).openTelemetry(telemetry).build();
+            s3Proxy.start();
+            assertThat(get("http://127.0.0.1:" + s3Proxy.getPort())
+                    .statusCode()).isEqualTo(500);
+            s3Proxy.stop();
+
+            assertThat(exporter.getFinishedSpanItems()).singleElement()
+                    .satisfies(span -> {
+                        assertThat(span.getAttributes().get(
+                                HttpAttributes.HTTP_RESPONSE_STATUS_CODE))
+                                .isEqualTo(500L);
+                        assertThat(span.getStatus().getStatusCode())
+                                .isEqualTo(StatusCode.ERROR);
+                        if (unhandled) {
+                            assertThat(span.getEvents()).singleElement()
+                                    .satisfies(event -> assertThat(
+                                            event.getName())
+                                            .isEqualTo("exception"));
+                        }
+                    });
+        }
+    }
+
+    @Test
+    public void testUnsampledTraceParent() throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            s3Proxy = baseBuilder().openTelemetry(telemetry).build();
+            s3Proxy.start();
+            var request = HttpRequest.newBuilder(URI.create(
+                    "http://127.0.0.1:" + s3Proxy.getPort()))
+                    .header("traceparent", "00-" +
+                            "1234567890abcdef1234567890abcdef-" +
+                            "0123456789abcdef-00")
+                    .GET().build();
+            assertThat(HttpClient.newHttpClient().send(request,
+                    HttpResponse.BodyHandlers.ofString()).statusCode())
+                    .isEqualTo(200);
+            s3Proxy.stop();
+            assertThat(exporter.getFinishedSpanItems()).isEmpty();
+        }
+    }
+
+    @Test
+    public void testStoppingProxyDoesNotCloseTelemetry() throws Exception {
+        var exporter = InMemorySpanExporter.create();
+        try (var telemetry = telemetry(exporter)) {
+            s3Proxy = baseBuilder().openTelemetry(telemetry).build();
+            s3Proxy.start();
+            s3Proxy.stop();
+            telemetry.getTracer("test").spanBuilder("after-stop")
+                    .startSpan().end();
+            assertThat(exporter.getFinishedSpanItems()).singleElement()
+                    .satisfies(span -> assertThat(span.getName())
+                            .isEqualTo("after-stop"));
         }
     }
 

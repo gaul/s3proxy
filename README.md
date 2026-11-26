@@ -279,6 +279,36 @@ durations and the bytes received and sent, by S3 operation, bucket, and
 status.  Set `s3proxy.metrics.enabled=true`; the wiki has
 [details](https://github.com/gaul/s3proxy/wiki/Metrics).
 
+## OpenTelemetry tracing
+
+The standalone application can export inbound S3 request traces without a
+Java agent. Export is disabled by default. To send traces to an OTLP HTTP
+collector, set:
+
+```sh
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+Use environment variables for the application process or container, or the
+equivalent `-Dotel.*` JVM system properties. The default service name is
+`s3proxy`; override it with `OTEL_SERVICE_NAME`.
+
+Spans continue incoming W3C trace context, use S3 operation names such as
+`GetObject`, and record the HTTP method and response status. They do not
+include object keys, query strings, or authentication headers. An existing
+active span, for example from the Java agent, is reused rather than duplicated.
+Requests rejected by Jetty before reaching the S3 servlet are not traced.
+
+Applications embedding S3Proxy can pass their own `OpenTelemetry` instance
+through `S3Proxy.builder().openTelemetry(openTelemetry)`. The caller owns its
+SDK lifecycle; stopping the proxy does not close it.
+
+This integration covers inbound tracing only. Prometheus metrics and console
+logging are unchanged; backend client spans, OTLP metrics, and OTLP logs still
+require separate instrumentation, such as the Java agent.
+
 ## CORS
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties
