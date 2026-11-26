@@ -7586,7 +7586,7 @@ public class S3ProxyHandler {
             final var result =
                     new AtomicReference<@Nullable CompleteMultipartUploadResponse>(
                     completedResult);
-            final AtomicReference<RuntimeException> exception =
+            final AtomicReference<Throwable> exception =
                     new AtomicReference<>();
             var thread = new Thread() {
                 @Override
@@ -7602,8 +7602,12 @@ public class S3ProxyHandler {
                             removeMultipartStub(blobStore, containerName,
                                     requireNonNull(completedStubName));
                         }
-                    } catch (RuntimeException re) {
-                        exception.set(re);
+                    } catch (Throwable t) {
+                        // An Error as well: one that escaped would end the
+                        // thread with nothing recorded, and the success
+                        // document below would go out for an object never
+                        // assembled -- which every SDK takes for success.
+                        exception.set(t);
                     }
                 }
             };

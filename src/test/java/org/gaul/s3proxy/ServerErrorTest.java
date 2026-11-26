@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -29,6 +30,7 @@ import org.gaul.s3proxy.auth.AuthenticationType;
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
 import org.gaul.s3proxy.blobstore.S3Exceptions;
+import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 
 /**
@@ -119,6 +123,24 @@ public final class ServerErrorTest {
         }
     }
 
+    /**
+     * A store that does not version completes an upload while the handler
+     * keeps the connection alive with whitespace, the 200 already sent.  An
+     * Error there ended the completing thread with nothing recorded, and the
+     * success document went out for an object never assembled, which every
+     * SDK takes for success.  It is now the late InternalError S3 sends.
+     */
+    @Test
+    public void testErrorDuringCompletionIsNoSuccess() throws Exception {
+        HttpResponse<String> response = completeFailingWith(
+                () -> new AssertionError("completion failed"));
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body())
+                .contains("<Error><Code>InternalError</Code>")
+                .doesNotContain("CompleteMultipartUploadResult");
+    }
+
     private long warningsFor(Throwable failure) {
         // AppenderBase appends under the appender's own monitor
         synchronized (logged) {
@@ -131,16 +153,63 @@ public final class ServerErrorTest {
         }
     }
 
-    /** Lists the buckets of a store whose listing throws what is given. */
-    private HttpResponse<String> listFailingWith(
-            Supplier<RuntimeException> failure) throws Exception {
-        BlobStore blobStore = new ForwardingBlobStore(
-                TestUtils.createTransientBlobStore()) {
+    /**
+     * Completes a one-part upload on a store without versioning whose
+     * completion throws what is given, answering the completion.
+     */
+    private HttpResponse<String> completeFailingWith(
+            Supplier<Throwable> failure) throws Exception {
+        BlobStore transientStore = TestUtils.createTransientBlobStore();
+        transientStore.createContainer("bucket");
+        BlobStore blobStore = new ForwardingBlobStore(transientStore) {
             @Override
-            public ListBucketsResponse list() {
-                throw failure.get();
+            public CompleteMultipartUploadResponse completeMultipartUpload(
+                    MultipartUpload mpu,
+                    CompleteMultipartUploadRequest request) {
+                Throwable t = failure.get();
+                if (t instanceof Error e) {
+                    throw e;
+                }
+                throw (RuntimeException) t;
+            }
+
+            // A versioning store completes before anything is sent.
+            @Override
+            public boolean supportsVersioning() {
+                return false;
             }
         };
+        S3Proxy proxy = start(blobStore);
+        try {
+            String object = "http://127.0.0.1:" + proxy.getPort() +
+                    "/bucket/key";
+            String created = send(HttpRequest.newBuilder(URI.create(
+                    object + "?uploads")).POST(BodyPublishers.noBody()))
+                    .body();
+            String uploadId = created.substring(
+                    created.indexOf("<UploadId>") + "<UploadId>".length(),
+                    created.indexOf("</UploadId>"));
+            String eTag = send(HttpRequest.newBuilder(URI.create(object +
+                    "?partNumber=1&uploadId=" + uploadId))
+                    .PUT(BodyPublishers.ofString("part")))
+                    .headers().firstValue("ETag").orElseThrow();
+            return send(HttpRequest.newBuilder(URI.create(object +
+                    "?uploadId=" + uploadId)).POST(BodyPublishers.ofString(
+                    "<CompleteMultipartUpload><Part><PartNumber>1" +
+                    "</PartNumber><ETag>" + eTag + "</ETag></Part>" +
+                    "</CompleteMultipartUpload>")));
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    private HttpResponse<String> send(HttpRequest.Builder request)
+            throws Exception {
+        return httpClient.send(request.build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static S3Proxy start(BlobStore blobStore) throws Exception {
         S3Proxy proxy = S3Proxy.builder()
                 .stopTimeout(0)
                 .blobStore(blobStore)
@@ -152,10 +221,23 @@ public final class ServerErrorTest {
         while (!proxy.getState().equals("STARTED")) {
             Thread.sleep(10);
         }
+        return proxy;
+    }
+
+    /** Lists the buckets of a store whose listing throws what is given. */
+    private HttpResponse<String> listFailingWith(
+            Supplier<RuntimeException> failure) throws Exception {
+        BlobStore blobStore = new ForwardingBlobStore(
+                TestUtils.createTransientBlobStore()) {
+            @Override
+            public ListBucketsResponse list() {
+                throw failure.get();
+            }
+        };
+        S3Proxy proxy = start(blobStore);
         try {
-            return httpClient.send(HttpRequest.newBuilder(URI.create(
-                    "http://127.0.0.1:" + proxy.getPort() + "/")).GET()
-                    .build(), HttpResponse.BodyHandlers.ofString());
+            return send(HttpRequest.newBuilder(URI.create(
+                    "http://127.0.0.1:" + proxy.getPort() + "/")).GET());
         } finally {
             proxy.stop();
         }
