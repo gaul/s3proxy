@@ -4352,6 +4352,20 @@ public class S3ProxyHandler {
                             .message(details == null ? null :
                                     details.errorMessage())
                             .build());
+                } catch (UnsupportedOperationException e) {
+                    // the request's, as NotImplemented is
+                    throw e;
+                } catch (RuntimeException e) {
+                    // A failure that is not S3's, an I/O error on one file
+                    // say, is still only this key's: its InternalError.
+                    logger.warn("DeleteObjects failed to delete {} from {}",
+                            key, containerName, e);
+                    errors.add(S3Error.builder()
+                            .key(key)
+                            .versionId(versionId)
+                            .code(S3ErrorCode.INTERNAL_ERROR.getErrorCode())
+                            .message(S3ErrorCode.INTERNAL_ERROR.getMessage())
+                            .build());
                 }
             }
             deleteResponse = DeleteObjectsResponse.builder()

@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import org.gaul.s3proxy.blobstore.domain.MultipartUpload;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -840,10 +841,11 @@ public interface BlobStore extends AutoCloseable {
      * returns.
      *
      * <p>Every object is attempted even after one fails, since this answers
-     * for each of them separately.  A failure that is the request's rather
-     * than an object's -- NotImplemented, which every other object would
-     * meet the same way -- is thrown instead of being reported a thousand
-     * times.
+     * for each of them separately, whatever an object's failure is.  A
+     * failure that is the request's rather than an object's --
+     * NotImplemented or an UnsupportedOperationException, which every other
+     * object would meet the same way -- is thrown instead of being reported
+     * a thousand times.
      */
     default DeleteObjectsResponse removeBlobs(DeleteObjectsRequest request) {
         String container = request.bucket();
@@ -868,7 +870,7 @@ public interface BlobStore extends AutoCloseable {
         // Collected only once every delete has finished: answering while some
         // are still in flight would describe a container the store is still
         // changing.
-        AwsServiceException requestFailure = null;
+        RuntimeException requestFailure = null;
         var futures = futuresBuilder.build();
         for (int i = 0; i < futures.size(); ++i) {
             ObjectIdentifier object = objects.get(i);
@@ -879,21 +881,21 @@ public interface BlobStore extends AutoCloseable {
                 throw new RuntimeException(ie);
             } catch (ExecutionException ee) {
                 Throwable cause = ee.getCause();
-                if (!(cause instanceof AwsServiceException ase)) {
-                    if (cause instanceof RuntimeException re) {
-                        throw re;
-                    } else if (cause instanceof Error error) {
-                        throw error;
-                    }
-                    throw new RuntimeException(cause);
+                if (cause == null) {
+                    cause = ee;
                 }
-                if ("NotImplemented".equals(S3Exceptions.errorCode(ase))) {
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                if ((cause instanceof AwsServiceException ase &&
+                        "NotImplemented".equals(S3Exceptions.errorCode(ase))) ||
+                        cause instanceof UnsupportedOperationException) {
                     if (requestFailure == null) {
-                        requestFailure = ase;
+                        requestFailure = (RuntimeException) cause;
                     }
                     continue;
                 }
-                errors.add(toError(object, ase));
+                errors.add(toError(object, cause, container));
             }
         }
         if (requestFailure != null) {
@@ -930,8 +932,21 @@ public interface BlobStore extends AutoCloseable {
      * refuses a version it does not have with InvalidArgument where S3 says
      * NoSuchVersion.
      */
-    private static S3Error toError(ObjectIdentifier object,
-            AwsServiceException exception) {
+    private static S3Error toError(ObjectIdentifier object, Throwable cause,
+            String container) {
+        AwsServiceException exception;
+        if (cause instanceof AwsServiceException ase) {
+            exception = ase;
+        } else {
+            // A failure that is not S3's, an I/O error on one file, say, is
+            // that object's InternalError.  Thrown instead, it failed the
+            // whole request with a 500 while the other objects had been
+            // deleted, and a client told that nothing was.
+            LoggerFactory.getLogger(BlobStore.class).warn(
+                    "DeleteObjects failed to delete {} from {}",
+                    object.key(), container, cause);
+            exception = S3Exceptions.internalError(cause);
+        }
         String code = S3Exceptions.errorCode(exception);
         var details = exception.awsErrorDetails();
         return S3Error.builder()

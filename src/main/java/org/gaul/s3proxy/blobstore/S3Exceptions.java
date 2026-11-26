@@ -302,6 +302,15 @@ public final class S3Exceptions {
     }
 
     /**
+     * S3's 500 InternalError, for a failure on this side that is not S3's:
+     * the one object's of several a batch delete reports separately, say.
+     */
+    public static S3Exception internalError(@Nullable Throwable cause) {
+        return withCode(500, "InternalError",
+                "We encountered an internal error. Please try again.", cause);
+    }
+
+    /**
      * S3's 403 InvalidObjectState, for a read of an object whose storage
      * class keeps it offline until it is restored.
      */

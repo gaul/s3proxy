@@ -18,7 +18,10 @@ package org.gaul.s3proxy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.ArrayList;
 
 import org.gaul.s3proxy.blobstore.BlobStore;
 import org.gaul.s3proxy.blobstore.ForwardingBlobStore;
@@ -66,6 +69,10 @@ public final class MultiDeletePartialFailureTest {
             if (request.key().equals(refusedKey)) {
                 throw S3Exceptions.invalidArgument(
                         "Invalid version id specified");
+            } else if (request.key().equals("broken")) {
+                // as a filesystem store wraps an I/O error
+                throw new UncheckedIOException(
+                        new IOException("Input/output error"));
             }
             return delegate().removeBlob(request);
         }
@@ -139,5 +146,38 @@ public final class MultiDeletePartialFailureTest {
         assertThat(error.key()).isEqualTo("refused");
         assertThat(error.code()).isEqualTo("InvalidArgument");
         assertThat(error.message()).isEqualTo("Invalid version id specified");
+    }
+
+    /**
+     * A failure that is not S3's is still only its key's: InternalError
+     * for that key, the others deleted.  Thrown, it failed the whole
+     * request with a 500 though the keys around it were deleted, both in
+     * the store's batch delete and in the key-by-key delete a condition
+     * asks for.
+     */
+    @Test
+    public void testOneBrokenKeyDoesNotFailTheRequest() {
+        for (boolean conditional : new boolean[] {false, true}) {
+            var identifiers = new ArrayList<ObjectIdentifier>();
+            for (String key : new String[] {"first", "broken", "last"}) {
+                String eTag = client.putObject(
+                        b -> b.bucket(containerName).key(key),
+                        RequestBody.fromString("content")).eTag();
+                identifiers.add(ObjectIdentifier.builder().key(key)
+                        .eTag(conditional ? eTag : null).build());
+            }
+
+            var response = client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(identifiers)));
+
+            assertThat(response.deleted()).as("conditional %s", conditional)
+                    .extracting(d -> d.key())
+                    .containsExactlyInAnyOrder("first", "last");
+            assertThat(response.errors()).as("conditional %s", conditional)
+                    .singleElement().satisfies(error -> {
+                        assertThat(error.key()).isEqualTo("broken");
+                        assertThat(error.code()).isEqualTo("InternalError");
+                    });
+        }
     }
 }
