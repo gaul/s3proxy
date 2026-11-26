@@ -77,8 +77,8 @@ public enum S3ErrorCode {
             "  The part may not have been uploaded, or the specified entity" +
             " tag may not match the part's entity tag."),
     INVALID_PART_ORDER(HttpServletResponse.SC_BAD_REQUEST,
-            "The list of parts must be specified in ascending" +
-            " PartNumber order."),
+            "The list of parts was not in ascending order. Parts must be" +
+            " ordered by part number."),
     INVALID_POLICY_DOCUMENT(HttpServletResponse.SC_BAD_REQUEST,
             "The content of the form does not meet the conditions specified" +
             " in the policy document."),

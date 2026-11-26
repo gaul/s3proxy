@@ -43,6 +43,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -7276,20 +7277,8 @@ public class S3ProxyHandler {
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
             if (cmu.parts() != null) {
-                // Sort by part number and deduplicate (last occurrence wins)
-                // before validating, so a resent part is checked against the
-                // ETag the client kept for its final upload.
-                SortedMap<Integer, CompleteMultipartUploadRequest.Part>
-                        requestParts = new TreeMap<>();
-                for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
-                    if (part.partNumber() < 1 || part.partNumber() > 10_000) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
-                                "Part numbers must be positive integers.");
-                    }
-                    requestParts.put(part.partNumber(), part);
-                }
                 for (CompleteMultipartUploadRequest.Part part :
-                        requestParts.values()) {
+                        partsInOrder(cmu.parts()).values()) {
                     Part uploadedPart = partsByListing.get(
                             part.partNumber());
                     if (uploadedPart == null) {
@@ -7326,18 +7315,9 @@ public class S3ProxyHandler {
                 }
                 throw new S3ProxyException(S3ErrorCode.NO_SUCH_UPLOAD);
             }
-            // use TreeMap to sort by part number and deduplicate (last wins)
             SortedMap<Integer, CompleteMultipartUploadRequest.Part>
-                    requestParts = new TreeMap<>();
-            if (cmu.parts() != null) {
-                for (CompleteMultipartUploadRequest.Part part : cmu.parts()) {
-                    if (part.partNumber() < 1 || part.partNumber() > 10_000) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
-                                "Part numbers must be positive integers.");
-                    }
-                    requestParts.put(part.partNumber(), part);
-                }
-            }
+                    requestParts = cmu.parts() == null ? new TreeMap<>() :
+                            partsInOrder(cmu.parts());
             FlexChecksum partAlgorithm = MpuChecksums.algorithm(cmu);
 
             for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
@@ -7719,6 +7699,36 @@ public class S3ProxyHandler {
         } catch (XMLStreamException xse) {
             throw new IOException(xse);
         }
+    }
+
+    /**
+     * The parts a completion names, by number, refusing a list that is not
+     * in strictly ascending order as S3 does: a part out of order, or named
+     * twice, is InvalidPartOrder.  Verified against AWS for [2,1], [1,1],
+     * [1,1,2] and [1,2,2].  The list was sorted and its duplicates dropped,
+     * so a completion S3 refuses succeeded, assembling an order the client
+     * never sent.  Jackson reads the list in document order.
+     */
+    private static SortedMap<Integer, CompleteMultipartUploadRequest.Part>
+            partsInOrder(
+                    Collection<CompleteMultipartUploadRequest.Part> parts)
+            throws S3ProxyException {
+        SortedMap<Integer, CompleteMultipartUploadRequest.Part> inOrder =
+                new TreeMap<>();
+        int previous = 0;
+        for (CompleteMultipartUploadRequest.Part part : parts) {
+            int partNumber = part.partNumber();
+            if (partNumber < 1 || partNumber > 10_000) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
+                        "Part numbers must be positive integers.");
+            }
+            if (partNumber <= previous) {
+                throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER);
+            }
+            previous = partNumber;
+            inOrder.put(partNumber, part);
+        }
+        return inOrder;
     }
 
     /**

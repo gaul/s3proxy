@@ -1782,6 +1782,53 @@ public final class AwsSdkTest {
     }
 
     /**
+     * S3 refuses a completion whose part list is not strictly ascending:
+     * a part out of order, or one named twice, is 400 InvalidPartOrder.
+     * Verified against AWS for each list below.  S3Proxy sorted the list
+     * and dropped duplicates, completing what S3 refuses.
+     */
+    @Test
+    public void testCompletePartsOutOfOrder() throws Exception {
+        String key = "testCompletePartsOutOfOrder";
+        String uploadId = client.createMultipartUpload(b -> b
+                .bucket(containerName).key(key)).uploadId();
+        var parts = new ArrayList<CompletedPart>();
+        for (int partNumber : new int[] {1, 2}) {
+            byte[] body = new byte[partNumber == 1 ? 5 * 1024 * 1024 : 1];
+            parts.add(CompletedPart.builder().partNumber(partNumber)
+                    .eTag(client.uploadPart(b -> b.bucket(containerName)
+                            .key(key).uploadId(uploadId)
+                            .partNumber(partNumber),
+                            RequestBody.fromBytes(body)).eTag())
+                    .build());
+        }
+        CompletedPart one = parts.get(0);
+        CompletedPart two = parts.get(1);
+        for (List<CompletedPart> named : List.of(List.of(two, one),
+                List.of(one, one), List.of(one, one, two),
+                List.of(one, two, two))) {
+            assertThatThrownBy(() -> client.completeMultipartUpload(b -> b
+                    .bucket(containerName).key(key).uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(named).build())))
+                    .as(named.stream().map(CompletedPart::partNumber)
+                            .toList().toString())
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(400);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("InvalidPartOrder");
+                    });
+        }
+
+        client.completeMultipartUpload(b -> b.bucket(containerName)
+                .key(key).uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder()
+                        .parts(one, two).build()));
+        assertThat(client.headObject(b -> b.bucket(containerName).key(key))
+                .contentLength()).isEqualTo(5 * 1024 * 1024 + 1);
+    }
+
+    /**
      * Two uploads to one key, completed one after the other.  S3 keeps
      * them apart and the second replaces the first.  Azure stages both on
      * the one blob and discards the second's parts when the first commits;
