@@ -43,9 +43,7 @@ public enum S3ErrorCode {
     ENTITY_TOO_LARGE(HttpServletResponse.SC_BAD_REQUEST,
             "Your proposed upload exceeds the maximum allowed object size."),
     ENTITY_TOO_SMALL(HttpServletResponse.SC_BAD_REQUEST,
-            "Your proposed upload is smaller than the minimum allowed object" +
-            " size. Each part must be at least 5 MB in size, except the last" +
-            " part."),
+            "Your proposed upload is smaller than the minimum allowed size"),
     EXPIRED_TOKEN(HttpServletResponse.SC_BAD_REQUEST,
             "The provided token has expired."),
     INCOMPLETE_BODY(HttpServletResponse.SC_BAD_REQUEST,

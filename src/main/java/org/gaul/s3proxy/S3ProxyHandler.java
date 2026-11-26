@@ -7278,11 +7278,11 @@ public class S3ProxyHandler {
             }
             if (cmu.parts() != null) {
                 for (CompleteMultipartUploadRequest.Part part :
-                        partsInOrder(cmu.parts()).values()) {
+                        partsInOrder(uploadId, cmu.parts()).values()) {
                     Part uploadedPart = partsByListing.get(
                             part.partNumber());
                     if (uploadedPart == null) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_PART);
+                        throw invalidPart(uploadId, part);
                     }
                     // Validate the client-supplied ETag against the uploaded
                     // part when the backend reports one (azureblob returns
@@ -7292,7 +7292,7 @@ public class S3ProxyHandler {
                             !equalsIgnoringSurroundingQuotes(
                                     uploadedETag,
                                     requireNonNull(part.eTag()))) {
-                        throw new S3ProxyException(S3ErrorCode.INVALID_PART);
+                        throw invalidPart(uploadId, part);
                     }
                     listedPartSizes.put(uploadedPart.partNumber(),
                             uploadedPart.size());
@@ -7317,25 +7317,27 @@ public class S3ProxyHandler {
             }
             SortedMap<Integer, CompleteMultipartUploadRequest.Part>
                     requestParts = cmu.parts() == null ? new TreeMap<>() :
-                            partsInOrder(cmu.parts());
+                            partsInOrder(uploadId, cmu.parts());
             FlexChecksum partAlgorithm = MpuChecksums.algorithm(cmu);
 
             for (var it = requestParts.entrySet().iterator(); it.hasNext();) {
                 var entry = it.next();
                 Part part = partsByListing.get(entry.getKey());
                 if (part == null) {
-                    throw new S3ProxyException(S3ErrorCode.INVALID_PART);
+                    throw invalidPart(uploadId, entry.getValue());
                 }
                 Long partSize = part.size();
+                long minimumPartSize = Math.max(5 * 1024 * 1024,
+                        blobStore.getMinimumMultipartPartSize());
                 if (it.hasNext() && partSize != null && partSize != -1 &&
-                        (partSize < 5 * 1024 * 1024 || partSize <
-                                blobStore.getMinimumMultipartPartSize())) {
-                    throw new S3ProxyException(S3ErrorCode.ENTITY_TOO_SMALL);
+                        partSize < minimumPartSize) {
+                    throw entityTooSmall(entry.getValue(), partSize,
+                            minimumPartSize);
                 }
                 if (part.eTag() != null &&
                         !equalsIgnoringSurroundingQuotes(part.eTag(),
                                 requireNonNull(entry.getValue().eTag()))) {
-                    throw new S3ProxyException(S3ErrorCode.INVALID_PART);
+                    throw invalidPart(uploadId, entry.getValue());
                 }
                 listedPartSizes.put(entry.getKey(), partSize);
                 var completed = CompletedPart.builder()
@@ -7722,7 +7724,7 @@ public class S3ProxyHandler {
      * the list in document order.
      */
     private static SortedMap<Integer, CompleteMultipartUploadRequest.Part>
-            partsInOrder(
+            partsInOrder(String uploadId,
                     Collection<CompleteMultipartUploadRequest.Part> parts)
             throws S3ProxyException {
         for (CompleteMultipartUploadRequest.Part part : parts) {
@@ -7741,12 +7743,48 @@ public class S3ProxyHandler {
         for (CompleteMultipartUploadRequest.Part part : parts) {
             int partNumber = part.partNumber();
             if (partNumber <= previous) {
-                throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER);
+                throw new S3ProxyException(S3ErrorCode.INVALID_PART_ORDER,
+                        S3ErrorCode.INVALID_PART_ORDER.getMessage(),
+                        /*cause=*/ null, ImmutableMap.of("UploadId", uploadId));
             }
             previous = partNumber;
             inOrder.put(partNumber, part);
         }
         return inOrder;
+    }
+
+    /**
+     * InvalidPart naming the part a completion listed, with the elements
+     * AWS adds after the message: the upload, and the part's number and
+     * ETag as the request gave them, unquoted.
+     */
+    private static S3ProxyException invalidPart(String uploadId,
+            CompleteMultipartUploadRequest.Part part) {
+        return new S3ProxyException(S3ErrorCode.INVALID_PART,
+                S3ErrorCode.INVALID_PART.getMessage(), /*cause=*/ null,
+                ImmutableMap.of(
+                        "UploadId", uploadId,
+                        "PartNumber", String.valueOf(part.partNumber()),
+                        "ETag", unquoteETag(Strings.nullToEmpty(
+                                part.eTag()))));
+    }
+
+    /**
+     * EntityTooSmall for a part other than the last, with the elements AWS
+     * adds after the message: the part's size, the least a part may be,
+     * and the part's number and ETag as the request gave them, unquoted.
+     */
+    private static S3ProxyException entityTooSmall(
+            CompleteMultipartUploadRequest.Part part, long size,
+            long minimumSize) {
+        return new S3ProxyException(S3ErrorCode.ENTITY_TOO_SMALL,
+                S3ErrorCode.ENTITY_TOO_SMALL.getMessage(), /*cause=*/ null,
+                ImmutableMap.of(
+                        "ProposedSize", String.valueOf(size),
+                        "MinSizeAllowed", String.valueOf(minimumSize),
+                        "PartNumber", String.valueOf(part.partNumber()),
+                        "ETag", unquoteETag(Strings.nullToEmpty(
+                                part.eTag()))));
     }
 
     /**
@@ -8090,14 +8128,14 @@ public class S3ProxyHandler {
         } catch (NumberFormatException nfe) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", nfe, Map.of(
+                    ", inclusive", nfe, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", (Throwable) null, Map.of(
+                    ", inclusive", (Throwable) null, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
@@ -8429,14 +8467,14 @@ public class S3ProxyHandler {
         } catch (NumberFormatException nfe) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", nfe, Map.of(
+                    ", inclusive", nfe, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }
         if (partNumber < 1 || partNumber > 10_000) {
             throw new S3ProxyException(S3ErrorCode.INVALID_ARGUMENT,
                     "Part number must be an integer between 1 and 10000" +
-                    ", inclusive", (Throwable) null, Map.of(
+                    ", inclusive", (Throwable) null, ImmutableMap.of(
                             "ArgumentName", "partNumber",
                             "ArgumentValue", partNumberString));
         }

@@ -84,6 +84,87 @@ public final class RequestInputErrorTest {
     }
 
     /**
+     * The multipart refusals carry the elements AWS writes after the
+     * message, in AWS's order, as AWS answered each of these requests:
+     * InvalidPart names the upload and the part as listed, InvalidPartOrder
+     * the upload, EntityTooSmall the part's size, the least allowed and the
+     * part, and InvalidArgument the argument and its value.
+     */
+    @Test
+    public void testMultipartRefusalsNameWhatTheyRefuse() throws Exception {
+        S3Proxy proxy = start(AuthenticationType.NONE);
+        try {
+            String object = "http://127.0.0.1:" + proxy.getPort() +
+                    "/bucket/key";
+            String created = send(HttpRequest.newBuilder(URI.create(
+                    object + "?uploads")).POST(
+                    HttpRequest.BodyPublishers.noBody())).body();
+            String uploadId = created.substring(
+                    created.indexOf("<UploadId>") + "<UploadId>".length(),
+                    created.indexOf("</UploadId>"));
+            String eTag = "";
+            for (int partNumber : new int[] {1, 2}) {
+                eTag = send(HttpRequest.newBuilder(URI.create(object +
+                        "?partNumber=" + partNumber + "&uploadId=" +
+                        uploadId)).PUT(HttpRequest.BodyPublishers.ofString(
+                        "x"))).headers().firstValue("ETag").orElseThrow();
+            }
+            String unquoted = eTag.replace("\"", "");
+
+            assertThat(complete(object, uploadId, eTag, 3).body())
+                    .contains("<Code>InvalidPart</Code>")
+                    .contains("</Message><UploadId>" + uploadId +
+                            "</UploadId><PartNumber>3</PartNumber><ETag>" +
+                            unquoted + "</ETag><RequestId>");
+            assertThat(complete(object, uploadId, eTag, 2, 1).body())
+                    .contains("<Code>InvalidPartOrder</Code>")
+                    .contains("</Message><UploadId>" + uploadId +
+                            "</UploadId><RequestId>");
+            assertThat(complete(object, uploadId, eTag, 1, 2).body())
+                    .contains("<Code>EntityTooSmall</Code>")
+                    .contains("</Message><ProposedSize>1</ProposedSize>" +
+                            "<MinSizeAllowed>5242880</MinSizeAllowed>" +
+                            "<PartNumber>1</PartNumber><ETag>" + unquoted +
+                            "</ETag><RequestId>");
+            assertThat(complete(object, uploadId, eTag, 0).body())
+                    .contains("<Code>InvalidArgument</Code>")
+                    .contains("</Message><ArgumentName>PartNumber" +
+                            "</ArgumentName><ArgumentValue>0</ArgumentValue>" +
+                            "<RequestId>");
+            assertThat(send(HttpRequest.newBuilder(URI.create(object +
+                    "?partNumber=10001&uploadId=" + uploadId))
+                    .PUT(HttpRequest.BodyPublishers.ofString("x"))).body())
+                    .contains("<Code>InvalidArgument</Code>")
+                    .contains("</Message><ArgumentName>partNumber" +
+                            "</ArgumentName><ArgumentValue>10001" +
+                            "</ArgumentValue><RequestId>");
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    /** Completes the upload naming each part number with the one ETag. */
+    private HttpResponse<String> complete(String object, String uploadId,
+            String eTag, int... partNumbers) throws Exception {
+        var body = new StringBuilder("<CompleteMultipartUpload>");
+        for (int partNumber : partNumbers) {
+            body.append("<Part><PartNumber>").append(partNumber)
+                    .append("</PartNumber><ETag>").append(eTag)
+                    .append("</ETag></Part>");
+        }
+        body.append("</CompleteMultipartUpload>");
+        return send(HttpRequest.newBuilder(URI.create(object + "?uploadId=" +
+                uploadId)).POST(HttpRequest.BodyPublishers.ofString(
+                body.toString())));
+    }
+
+    private HttpResponse<String> send(HttpRequest.Builder request)
+            throws Exception {
+        return httpClient.send(request.build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
      * S3 takes a part of at most 5 GiB and refuses a larger one before
      * reading it.  Nothing limited a part: a store took what it could, and
      * Azure, whose blocks stop at 4000 MiB, answered a 500.  The body is
