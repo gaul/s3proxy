@@ -3036,7 +3036,7 @@ public final class GCloudBlobStore implements BlobStore {
      * Translate StorageException to an S3-shaped SDK exception, returning
      * the original StorageException unchanged if no translation applies.
      */
-    private static RuntimeException translate(StorageException se,
+    static RuntimeException translate(StorageException se,
             String container, @Nullable String key) {
         switch (se.getCode()) {
         case 404 -> {
@@ -3062,18 +3062,12 @@ public final class GCloudBlobStore implements BlobStore {
             return S3Exceptions.invalidRequest(
                     Strings.nullToEmpty(se.getMessage()));
         }
-        case 409 -> {
-            return S3Exceptions.operationAborted(se);
+        default -> {
+            RuntimeException translated = S3Exceptions.fromBackendStatus(
+                    se.getCode(), se);
+            return translated != null ? translated : se;
         }
-        case 429 -> {
-            return S3Exceptions.slowDown(se);
         }
-        case 502, 503, 504 -> {
-            return S3Exceptions.serviceUnavailable(se);
-        }
-        default -> { }
-        }
-        return se;
     }
 
     /**

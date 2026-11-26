@@ -275,6 +275,43 @@ public final class S3Exceptions {
     }
 
     /**
+     * The S3 error a backend's refusal is by its status alone, for one the
+     * backend's own error code did not already name; null for a status with
+     * no S3 counterpart.  A refusal passed on untranslated reaches the
+     * client as a 500 InternalError, which blames this side for what the
+     * request asked and which every SDK retries.
+     */
+    @Nullable
+    public static S3Exception fromBackendStatus(int statusCode,
+            @Nullable Throwable cause) {
+        return switch (statusCode) {
+        case 400 -> withCode(400, "InvalidRequest",
+                "The backend refused the request.", cause);
+        case 409 -> operationAborted(cause);
+        case 411 -> withCode(411, "MissingContentLength",
+                "You must provide the Content-Length HTTP header.", cause);
+        case 413 -> withCode(400, "EntityTooLarge",
+                "Your proposed upload exceeds the maximum allowed object" +
+                " size.", cause);
+        case 416 -> withCode(416, "InvalidRange",
+                "The requested range is not satisfiable", cause);
+        case 429 -> slowDown(cause);
+        case 502, 503, 504 -> serviceUnavailable(cause);
+        default -> null;
+        };
+    }
+
+    /**
+     * S3's 403 InvalidObjectState, for a read of an object whose storage
+     * class keeps it offline until it is restored.
+     */
+    public static S3Exception invalidObjectState(@Nullable Throwable cause) {
+        return withCode(403, "InvalidObjectState",
+                "The operation is not valid for the object's storage class",
+                cause);
+    }
+
+    /**
      * S3's 409 OperationAborted, for a write that lost to another operation
      * on the same object or bucket: one the client may try again.
      */

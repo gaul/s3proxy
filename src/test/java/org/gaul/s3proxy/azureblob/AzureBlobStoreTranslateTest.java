@@ -275,6 +275,53 @@ public final class AzureBlobStoreTranslateTest {
         }
     }
 
+    /**
+     * GLACIER and DEEP_ARCHIVE are kept in the Archive tier, which Azure
+     * will not read until the blob is rehydrated.  S3 answers such a read
+     * 403 InvalidObjectState; Azure's 409 was a 500 InternalError.
+     */
+    @Test
+    public void testArchivedBlobIsInvalidObjectState() {
+        for (String code : List.of("BlobArchived", "BlobBeingRehydrated")) {
+            assertThat(AzureBlobStore.translate(
+                    azureException(409, code), "container", "key"))
+                    .as(code)
+                    .isInstanceOfSatisfying(S3Exception.class, e -> {
+                        assertThat(e.statusCode()).isEqualTo(403);
+                        assertThat(e.awsErrorDetails().errorCode())
+                                .isEqualTo("InvalidObjectState");
+                    });
+        }
+    }
+
+    /**
+     * An Azure error no code names is judged by its status rather than
+     * passed on raw, which the frontend answered 500 InternalError.  A
+     * status with no S3 counterpart still is.
+     */
+    @Test
+    public void testUnnamedCodeFallsBackToStatus() {
+        for (var entry : List.of(
+                Map.entry(azureException(400, "InvalidHeaderValue"),
+                        "InvalidRequest"),
+                Map.entry(azureException(409, "ContainerBeingDeleted"),
+                        "OperationAborted"),
+                Map.entry(azureException(413, "RequestBodyTooLarge"),
+                        "EntityTooLarge"),
+                Map.entry(azureException(416, "InvalidRange"),
+                        "InvalidRange"))) {
+            assertThat(AzureBlobStore.translate(entry.getKey(), "container",
+                    "key"))
+                    .as(entry.getValue())
+                    .isInstanceOfSatisfying(S3Exception.class,
+                            e -> assertThat(e.awsErrorDetails().errorCode())
+                                    .isEqualTo(entry.getValue()));
+        }
+        assertThat(AzureBlobStore.translate(azureException(404,
+                "ResourceNotFound"), "container", "key"))
+                .isInstanceOf(BlobStorageException.class);
+    }
+
     /** An Azure service error as the SDK would raise it. */
     private static BlobStorageException azureException(int statusCode,
             @Nullable String errorCode) {

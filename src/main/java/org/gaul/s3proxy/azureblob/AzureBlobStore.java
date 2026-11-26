@@ -2052,6 +2052,9 @@ public final class AzureBlobStore implements BlobStore {
                 throw S3Exceptions.noSuchKey(request.destinationBucket(),
                         request.destinationKey(), "", refused);
             }
+            if (isArchivedSource(refused, fromClient)) {
+                throw S3Exceptions.invalidObjectState(refused);
+            }
             if (refused.getStatusCode() != 501) {
                 throw translate(refused, fromContainer, fromName,
                         request.sourceVersionId());
@@ -2128,6 +2131,28 @@ public final class AzureBlobStore implements BlobStore {
                 throw translate(copyRefused, fromContainer, fromName,
                         request.sourceVersionId());
             }
+        }
+    }
+
+    /**
+     * Whether a copy failed because its source is in the Archive tier, which
+     * S3 refuses as InvalidObjectState.  Put Blob From URL reports the
+     * source's own 409 BlobArchived as CannotVerifyCopySource, the code it
+     * gives any refusal of the source, so the source is asked.
+     */
+    private static boolean isArchivedSource(BlobStorageException bse,
+            BlobClient fromClient) {
+        if (bse.getStatusCode() != 409 ||
+                !BlobErrorCode.CANNOT_VERIFY_COPY_SOURCE.equals(
+                        bse.getErrorCode())) {
+            return false;
+        }
+        try {
+            var properties = fromClient.getProperties();
+            return AccessTier.ARCHIVE.equals(properties.getAccessTier()) ||
+                    properties.getArchiveStatus() != null;
+        } catch (BlobStorageException e) {
+            return false;
         }
     }
 
@@ -4005,14 +4030,10 @@ public final class AzureBlobStore implements BlobStore {
             // also covers a source that is missing or forbidden.
             return S3Exceptions.fromStatusCode(412, bse);
         }
-        int statusCode = bse.getStatusCode();
-        if (statusCode == 429 || BlobErrorCode.SERVER_BUSY.equals(code)) {
+        if (BlobErrorCode.SERVER_BUSY.equals(code)) {
             // Azure throttles with 503 ServerBusy, which passed on was a
             // 500 InternalError; S3's SlowDown tells the client to back off.
             return S3Exceptions.slowDown(bse);
-        } else if (statusCode == 502 || statusCode == 503 ||
-                statusCode == 504) {
-            return S3Exceptions.serviceUnavailable(bse);
         }
         if (code == null) {
             // Azure names no x-ms-error-code for a malformed query parameter
@@ -4020,20 +4041,12 @@ public final class AzureBlobStore implements BlobStore {
             // only a HEAD; fall back to the HTTP status so a client error
             // stays a client error rather than becoming the 500 a raw
             // exception would.
-            int status = bse.getStatusCode();
-            if (status == 403 || status == 401) {
-                return S3Exceptions.fromStatusCode(403, bse);
-            }
-            if (status == 400 && versionId != null) {
+            if (bse.getStatusCode() == 400 && versionId != null) {
                 // S3 answers a versionId it cannot parse with InvalidArgument
                 return S3Exceptions.invalidArgument(
                         "Invalid version id specified");
             }
-            if (status == 400) {
-                return S3Exceptions.withCode(400, "InvalidRequest",
-                        "The backend refused the request as malformed.", bse);
-            }
-            return bse;
+            return fromStatus(bse);
         }
         if (code.equals(BlobErrorCode.BLOB_NOT_FOUND)) {
             return S3Exceptions.noSuchKey(container, key, "", bse);
@@ -4088,12 +4101,31 @@ public final class AzureBlobStore implements BlobStore {
             return S3Exceptions.invalidRequest("The object was stored using" +
                     " a form of Server Side Encryption.  The correct" +
                     " parameters must be provided to retrieve the object.");
-        } else if (bse.getStatusCode() == 403 || bse.getStatusCode() == 401) {
-            // Surface a permission failure as 403 AccessDenied rather than a
-            // generic 500.
+        } else if (code.equals(BlobErrorCode.BLOB_ARCHIVED) ||
+                code.equals(BlobErrorCode.BLOB_BEING_REHYDRATED)) {
+            // GLACIER and DEEP_ARCHIVE are stored in the Archive tier, which
+            // Azure will not read until the blob is rehydrated.  S3 refuses
+            // a read of an object not yet restored with InvalidObjectState;
+            // Azure's 409 was a 500, which a client retries in vain.
+            return S3Exceptions.invalidObjectState(bse);
+        }
+        return fromStatus(bse);
+    }
+
+    /**
+     * An Azure error no code above names, judged by its status: a 4xx is
+     * the request's to correct, as Azure said, not the 500 InternalError it
+     * would otherwise become.
+     */
+    private static RuntimeException fromStatus(BlobStorageException bse) {
+        int statusCode = bse.getStatusCode();
+        if (statusCode == 403 || statusCode == 401) {
+            // a permission failure is AccessDenied
             return S3Exceptions.fromStatusCode(403, bse);
         }
-        return bse;
+        RuntimeException translated = S3Exceptions.fromBackendStatus(
+                statusCode, bse);
+        return translated != null ? translated : bse;
     }
 
     /** How the store authenticates to Azure. */

@@ -1103,6 +1103,42 @@ public final class AwsSdkTest {
     }
 
     /**
+     * GLACIER is kept in Azure's Archive tier, which Azure reads only after
+     * rehydrating the blob.  S3 refuses a read or a copy of an object not
+     * yet restored with 403 InvalidObjectState; Azure's 409 BlobArchived,
+     * and the CannotVerifyCopySource a copy from URL reports it as, were a
+     * 500 InternalError.
+     */
+    @Test
+    public void testArchivedObjectIsInvalidObjectState() throws Exception {
+        assumeTrue(blobStoreType.equals("azureblob"));
+        var key = "archived";
+        client.putObject(b -> b.bucket(containerName).key(key)
+                .storageClass(StorageClass.GLACIER),
+                RequestBody.fromString("body"));
+
+        try {
+            var unused = client.getObjectAsBytes(
+                    b -> b.bucket(containerName).key(key));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(403);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("InvalidObjectState");
+        }
+        try {
+            client.copyObject(b -> b.sourceBucket(containerName)
+                    .sourceKey(key).destinationBucket(containerName)
+                    .destinationKey(key + "-copy"));
+            Fail.failBecauseExceptionWasNotThrown(S3Exception.class);
+        } catch (S3Exception e) {
+            assertThat(e.statusCode()).isEqualTo(403);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("InvalidObjectState");
+        }
+    }
+
+    /**
      * Azure conditions a delete on the ETag alone, so the size and time
      * forms are refused rather than answered against a read of the object
      * that anything could overtake.

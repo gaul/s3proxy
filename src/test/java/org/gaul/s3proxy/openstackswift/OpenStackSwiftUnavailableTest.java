@@ -22,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Map;
 
 import com.google.common.base.Suppliers;
 import com.sun.net.httpserver.HttpExchange;
@@ -79,6 +81,33 @@ public final class OpenStackSwiftUnavailableTest {
                                             .isEqualTo(503);
                                     assertThat(S3Exceptions.errorCode(e))
                                             .isEqualTo(expected);
+                                });
+            }
+        }
+    }
+
+    /**
+     * A refusal no case above names is judged by its status.  Each was
+     * passed on raw and answered 500 InternalError: a 400 for user metadata
+     * past Swift's limits, which are narrower than S3's, say.
+     */
+    @Test
+    public void testRefusalIsTranslatedByStatus() {
+        for (var entry : List.of(
+                Map.entry(400, "InvalidRequest"),
+                Map.entry(413, "EntityTooLarge"),
+                Map.entry(422, "BadDigest"))) {
+            status = entry.getKey();
+            try (BlobStore blobStore = store()) {
+                assertThatThrownBy(() -> blobStore.createContainer(
+                        "bucket"))
+                        .as("%d", status)
+                        .isInstanceOfSatisfying(AwsServiceException.class,
+                                e -> {
+                                    assertThat(e.statusCode())
+                                            .isEqualTo(400);
+                                    assertThat(S3Exceptions.errorCode(e))
+                                            .isEqualTo(entry.getValue());
                                 });
             }
         }

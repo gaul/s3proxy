@@ -153,8 +153,14 @@ public final class AzureCopySourceSignatureTest {
     private void assertRefusedWithoutTheSignature(Throwable thrown) {
         assertThat(copySources).allSatisfy(
                 copySource -> assertThat(copySource).contains("sig=secret"));
-        assertThat(thrown).isInstanceOfSatisfying(BlobStorageException.class,
-                bse -> {
+        // S3's word for the refusal, carrying Azure's for the log
+        assertThat(thrown).isInstanceOfSatisfying(S3Exception.class, e -> {
+            assertThat(e.statusCode()).isEqualTo(400);
+            assertThat(e.awsErrorDetails().errorCode())
+                    .isEqualTo("InvalidRequest");
+        });
+        assertThat(thrown.getCause()).isInstanceOfSatisfying(
+                BlobStorageException.class, bse -> {
                     assertThat(bse.getStatusCode()).isEqualTo(400);
                     assertThat(bse.getErrorCode()).isEqualTo(
                             BlobErrorCode.INVALID_HEADER_VALUE);
