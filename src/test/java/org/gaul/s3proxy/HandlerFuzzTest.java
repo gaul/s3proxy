@@ -328,6 +328,25 @@ public final class HandlerFuzzTest {
     }
 
     /**
+     * The Content-Length a request is written with is the length of the body
+     * written, whatever the fuzzer's headers say the body is.  The SDK's
+     * signer sized an aws-chunked body from the fuzzer's own
+     * x-amz-decoded-content-length and sent the shorter one it had, and the
+     * server waited for the rest until the harness gave up on it.
+     */
+    @Test
+    void testDeclaredLengthIsSent() {
+        var put = new Request("PUT", "/" + BUCKET + "/dir/", List.of(),
+                List.of(new Header("x-amz-decoded-content-length", "2")),
+                new byte[0]);
+        for (Signing signing : Signing.values()) {
+            Wire wire = write(put, signing, -1);
+            assertThat(wire.head()).as("%s", signing).containsIgnoringCase(
+                    "Content-Length: " + wire.body().length + "\r\n");
+        }
+    }
+
+    /**
      * Every way the signed target signs gets past authentication, read and
      * write, with a subresource and a header the signature has to cover;
      * otherwise the fuzzer would only ever meet SignatureDoesNotMatch.  Each
@@ -1130,6 +1149,17 @@ public final class HandlerFuzzTest {
         }
 
         SdkHttpRequest signedRequest = signed.request();
+        // The signer sizes an aws-chunked body from an
+        // x-amz-decoded-content-length it finds among the headers, the
+        // fuzzer's own included, and then streams the body it was given:
+        // a Content-Length signed for more bytes than are sent, which the
+        // server rightly waits for until the connection times out.  That
+        // request goes as the fuzzer wrote it instead, as one the signer
+        // refuses does.
+        if (!signedRequest.firstMatchingHeader("Content-Length")
+                .map(String.valueOf(body.length)::equals).orElse(true)) {
+            return writeUnsigned(request);
+        }
         URI uri = signedRequest.getUri();
         var head = new StringBuilder(request.method()).append(' ')
                 .append(uri.getRawPath());
