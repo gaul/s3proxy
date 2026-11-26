@@ -462,6 +462,45 @@ public final class S3Exceptions {
         return code == null || code.isEmpty() ? null : code;
     }
 
+    /**
+     * The exception's S3 error code or, for one carrying only a status, the
+     * code S3 gives that status: how a store's refusal is named wherever the
+     * frontend reports one, the response, a DeleteObjects key's Error, or
+     * the Error a completion writes after its 200.  Asking only for the
+     * code, a key's Error and a late completion called every refusal a
+     * store gave as a status alone InternalError, which a client retries,
+     * where the response itself said AccessDenied.  Null for a status with
+     * no code of its own.
+     */
+    @Nullable
+    public static String errorCodeOrStatus(AwsServiceException exception) {
+        String code = errorCode(exception);
+        return code != null ? code : errorCodeForStatus(
+                exception.statusCode());
+    }
+
+    /**
+     * The code S3 gives a status, for a refusal that names none.  A 412 is
+     * PreconditionFailed here; the response tells it from a 304 Not
+     * Modified by the request it answers.
+     */
+    @Nullable
+    public static String errorCodeForStatus(int statusCode) {
+        return switch (statusCode) {
+        case 400 -> "InvalidRequest";
+        case 403 -> "AccessDenied";
+        case 405 -> "MethodNotAllowed";
+        case 412 -> "PreconditionFailed";
+        case 416 -> "InvalidRange";
+        // Swift's answer to a body that does not hash to its ETag
+        case 422 -> "BadDigest";
+        case 500 -> "InternalError";
+        case 501 -> "NotImplemented";
+        case 503 -> "ServiceUnavailable";
+        default -> null;
+        };
+    }
+
     /** The service response riding on the exception, or null. */
     @Nullable
     public static SdkHttpResponse httpResponse(AwsServiceException exception) {

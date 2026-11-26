@@ -227,36 +227,21 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                         S3ErrorCode.PRECONDITION_FAILED);
             }
         }
-        case 416 -> sendErrorResponse(request, response,
-                S3ErrorCode.INVALID_RANGE);
-        case HttpServletResponse.SC_METHOD_NOT_ALLOWED ->
-            sendErrorResponse(request, response,
-                    S3ErrorCode.METHOD_NOT_ALLOWED);
-        // A store names BadDigest when that is what it means; a bare 400
-        // only says the request was refused, and answered BadDigest it told
-        // the client to retry, e.g. a key the store reserves, for good.
-        case HttpServletResponse.SC_BAD_REQUEST -> sendErrorResponse(
-                request, response, S3ErrorCode.INVALID_REQUEST);
-        // Swift returns 422 Unprocessable Entity for an ETag mismatch
-        case 422 -> sendErrorResponse(
-                request, response, S3ErrorCode.BAD_DIGEST);
-        // Backends report authorization failures as 403; surface a proper
-        // AccessDenied error document rather than a bare 403 status.
-        case HttpServletResponse.SC_FORBIDDEN -> sendErrorResponse(
-                request, response, S3ErrorCode.ACCESS_DENIED);
-        // These were answered with the status alone and no body, which an
-        // S3 client reports as an unknown error.
-        case HttpServletResponse.SC_INTERNAL_SERVER_ERROR ->
-            sendErrorResponse(request, response, S3ErrorCode.INTERNAL_ERROR);
-        case HttpServletResponse.SC_NOT_IMPLEMENTED -> sendErrorResponse(
-                request, response, S3ErrorCode.NOT_IMPLEMENTED);
-        case HttpServletResponse.SC_SERVICE_UNAVAILABLE ->
-            handler.sendSimpleErrorResponse(request, response,
-                    "ServiceUnavailable", status,
-                    "Service is unable to handle request.", Map.of());
         default -> {
-            logger.debug("AwsServiceException:", ase);
-            response.setStatus(status);
+            // The rest by the code S3 gives the status, as a DeleteObjects
+            // key's Error and a late completion name them: a bare 403 is
+            // AccessDenied, a bare 400 InvalidRequest -- not BadDigest,
+            // which told the client to retry, e.g. a key the store
+            // reserves, for good.  Answered with the status alone, an S3
+            // client reports an unknown error.
+            S3ErrorCode named = S3ErrorCode.fromErrorCode(
+                    S3Exceptions.errorCodeForStatus(status));
+            if (named != null) {
+                sendErrorResponse(request, response, named);
+            } else {
+                logger.debug("AwsServiceException:", ase);
+                response.setStatus(status);
+            }
         }
         }
     }

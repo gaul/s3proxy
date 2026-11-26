@@ -4348,7 +4348,7 @@ public class S3ProxyHandler {
                     errors.add(S3Error.builder()
                             .key(key)
                             .versionId(versionId)
-                            .code(S3Exceptions.errorCode(e))
+                            .code(S3Exceptions.errorCodeOrStatus(e))
                             .message(details == null ? null :
                                     details.errorMessage())
                             .build());
@@ -4447,14 +4447,26 @@ public class S3ProxyHandler {
 
     /** The message for that code, naming S3's own where it has one. */
     private static String errorMessageOf(S3Error error) {
-        String code = error.code();
+        return errorMessageOf(error.code(), error.message());
+    }
+
+    /**
+     * The message for a code, naming S3's own where it has one, and for a
+     * store that named only a status, the one for the code S3 gives it.
+     */
+    private static String errorMessageOf(@Nullable String code,
+            @Nullable String message) {
         if ("NoSuchVersion".equals(code)) {
             return "The specified version does not exist.";
         } else if ("PreconditionFailed".equals(code)) {
             return S3ErrorCode.PRECONDITION_FAILED.getMessage();
         }
-        return error.message() == null ?
-                S3ErrorCode.INTERNAL_ERROR.getMessage() : error.message();
+        if (message != null) {
+            return message;
+        }
+        S3ErrorCode named = S3ErrorCode.fromErrorCode(code);
+        return named != null ? named.getMessage() :
+                S3ErrorCode.INTERNAL_ERROR.getMessage();
     }
 
     private void handleBlobMetadata(HttpServletRequest request,
@@ -7684,7 +7696,7 @@ public class S3ProxyHandler {
                         .findFirst()
                         .orElse(null);
                 String storeCode = storeError == null ? null :
-                        S3Exceptions.errorCode(storeError);
+                        S3Exceptions.errorCodeOrStatus(storeError);
                 if (storeError != null && storeCode != null) {
                     // As the Jetty handler logs a store's failure answered
                     // before the response was committed: a 5xx is the
@@ -7701,9 +7713,9 @@ public class S3ProxyHandler {
                                 exception.get());
                     }
                     lateCode = storeCode;
-                    String storeMessage =
-                            storeError.awsErrorDetails().errorMessage();
-                    lateMessage = storeMessage == null ? "" : storeMessage;
+                    var details = storeError.awsErrorDetails();
+                    lateMessage = errorMessageOf(storeCode,
+                            details == null ? null : details.errorMessage());
                 } else {
                     logger.error("completeMultipartUpload failed after the " +
                             "response was committed", exception.get());

@@ -69,6 +69,9 @@ public final class MultiDeletePartialFailureTest {
             if (request.key().equals(refusedKey)) {
                 throw S3Exceptions.invalidArgument(
                         "Invalid version id specified");
+            } else if (request.key().equals("denied")) {
+                // as Azure, GCS and Swift report a permission failure
+                throw S3Exceptions.fromStatusCode(403);
             } else if (request.key().equals("broken")) {
                 // as a filesystem store wraps an I/O error
                 throw new UncheckedIOException(
@@ -146,6 +149,32 @@ public final class MultiDeletePartialFailureTest {
         assertThat(error.key()).isEqualTo("refused");
         assertThat(error.code()).isEqualTo("InvalidArgument");
         assertThat(error.message()).isEqualTo("Invalid version id specified");
+    }
+
+    /**
+     * A refusal a store names only by its status is named for its key by
+     * the code S3 gives that status, as the response would be for a single
+     * delete.  It was InternalError, which a client retries.
+     */
+    @Test
+    public void testStatusWithoutCodeIsNamedForItsKey() {
+        for (boolean conditional : new boolean[] {false, true}) {
+            String eTag = client.putObject(
+                    b -> b.bucket(containerName).key("denied"),
+                    RequestBody.fromString("content")).eTag();
+
+            var response = client.deleteObjects(b -> b.bucket(containerName)
+                    .delete(d -> d.objects(ObjectIdentifier.builder()
+                            .key("denied")
+                            .eTag(conditional ? eTag : null)
+                            .build())));
+
+            assertThat(response.errors()).as("conditional %s", conditional)
+                    .singleElement().satisfies(error -> {
+                        assertThat(error.key()).isEqualTo("denied");
+                        assertThat(error.code()).isEqualTo("AccessDenied");
+                    });
+        }
     }
 
     /**

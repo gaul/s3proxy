@@ -947,7 +947,7 @@ public interface BlobStore extends AutoCloseable {
                     object.key(), container, cause);
             exception = S3Exceptions.internalError(cause);
         }
-        String code = S3Exceptions.errorCode(exception);
+        String code = S3Exceptions.errorCodeOrStatus(exception);
         var details = exception.awsErrorDetails();
         return S3Error.builder()
                 .key(object.key())

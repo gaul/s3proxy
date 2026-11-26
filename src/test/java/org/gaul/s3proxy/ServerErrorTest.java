@@ -162,6 +162,22 @@ public final class ServerErrorTest {
         assertThat(warningsFor(failure)).isEqualTo(1);
     }
 
+    /**
+     * A store's refusal that names only its status is named by the code S3
+     * gives it there too, as the response would have named it before the
+     * 200 went out.  It was InternalError, which a client retries.
+     */
+    @Test
+    public void testLateStatusWithoutCodeIsNamed() throws Exception {
+        HttpResponse<String> response = completeFailingWith(
+                () -> S3Exceptions.fromStatusCode(403));
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body())
+                .contains("<Error><Code>AccessDenied</Code>")
+                .doesNotContain("CompleteMultipartUploadResult");
+    }
+
     private long warningsFor(Throwable failure) {
         // AppenderBase appends under the appender's own monitor
         synchronized (logged) {

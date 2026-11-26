@@ -18,9 +18,15 @@ package org.gaul.s3proxy;
 
 import static java.util.Objects.requireNonNull;
 
+import java.util.Arrays;
+import java.util.Map;
+
 import com.google.common.base.CaseFormat;
+import com.google.common.collect.ImmutableMap;
 
 import jakarta.servlet.http.HttpServletResponse;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * List of S3 error codes.  Reference:
@@ -126,6 +132,8 @@ public enum S3ErrorCode {
             "At least one of the preconditions you specified did not hold."),
     REQUEST_TIME_TOO_SKEWED(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     REQUEST_TIMEOUT(HttpServletResponse.SC_BAD_REQUEST, "Bad Request"),
+    SERVICE_UNAVAILABLE(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+            "Service is unable to handle request."),
     SIGNATURE_DOES_NOT_MATCH(HttpServletResponse.SC_FORBIDDEN, "Forbidden"),
     SLOW_DOWN(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
             "Please reduce your request rate."),
@@ -136,6 +144,10 @@ public enum S3ErrorCode {
     X_AMZ_CONTENT_S_H_A_256_MISMATCH(HttpServletResponse.SC_BAD_REQUEST,
             "The provided 'x-amz-content-sha256' header does not match what" +
             " was computed.");
+
+    private static final Map<String, S3ErrorCode> BY_ERROR_CODE =
+            Arrays.stream(values()).collect(ImmutableMap.toImmutableMap(
+                    S3ErrorCode::getErrorCode, e -> e));
 
     private final String errorCode;
     private final int httpStatusCode;
@@ -150,6 +162,12 @@ public enum S3ErrorCode {
 
     String getErrorCode() {
         return errorCode;
+    }
+
+    /** The constant whose code this is, or null for one S3Proxy has none of. */
+    @Nullable
+    static S3ErrorCode fromErrorCode(@Nullable String errorCode) {
+        return errorCode == null ? null : BY_ERROR_CODE.get(errorCode);
     }
 
     int getHttpStatusCode() {
