@@ -149,8 +149,6 @@ public final class AwsSdkTest {
      * LocalStack rather than a test for whoever holds 4566.
      */
     private static final int LOCALSTACK_PORT = 4566;
-    /** The port MiniStack's lane publishes. */
-    private static final int MINISTACK_PORT = 4567;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
@@ -4939,16 +4937,13 @@ public final class AwsSdkTest {
      */
     @Test
     public void testListMultipartUploadsDelimiterAndPaging() throws Exception {
-        // aws-s3 relays its backend's listing, and MiniStack takes the
-        // delimiter and folds nothing.  S3 folds, but a common prefix does
-        // not advance its next key marker: a page that ends in one names
-        // the last upload before it, or none at all, so the prefix comes
-        // again on the next page, and at one entry a page S3 never gets
-        // past it.  LocalStack does the same.  The other stores list each
-        // prefix once and resume after it.
-        boolean relayed = blobStoreType.equals("aws-s3");
-        assumeTrue(!relayed || blobStoreEndpoint.getPort() != MINISTACK_PORT);
-        boolean pagesPrefixes = !relayed;
+        // aws-s3 relays its backend's listing.  S3 folds, but a common
+        // prefix does not advance its next key marker: a page that ends in
+        // one names the last upload before it, or none at all, so the prefix
+        // comes again on the next page, and at one entry a page S3 never
+        // gets past it.  LocalStack and MiniStack do the same.  The other
+        // stores list each prefix once and resume after it.
+        boolean pagesPrefixes = !blobStoreType.equals("aws-s3");
         for (String key : List.of("a", "dir/x", "dir/y", "dir/sub/z", "e",
                 "e")) {
             client.createMultipartUpload(b -> b.bucket(containerName)
@@ -5523,10 +5518,6 @@ public final class AwsSdkTest {
                 .satisfies(thrown -> assertThat(
                         ((S3Exception) thrown).statusCode()).isEqualTo(416));
 
-        // aws-s3 relays its backend's answer, and MiniStack answers 206
-        // with an invalid Content-Range, ministackorg/ministack#2787.
-        assumeTrue(!blobStoreType.equals("aws-s3") ||
-                blobStoreEndpoint.getPort() != MINISTACK_PORT);
         var empty = client.getObjectAsBytes(b -> b.bucket(containerName)
                 .key("range-empty").range("bytes=-5"));
         assertThat(empty.response().sdkHttpResponse().statusCode())

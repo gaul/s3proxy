@@ -73,13 +73,11 @@ public final class VersionedBlobStoreTest {
             StandardCharsets.UTF_8);
 
     /**
-     * The ports the two aws-s3 emulator lanes publish.  Both answer most of
-     * S3 and neither answers all of it, and they differ from each other, so
-     * the few tests that need the difference name the port -- the same
-     * reasoning AwsSdkTest sets out at greater length.
+     * The port the LocalStack lane publishes.  LocalStack answers most of
+     * S3 but not all of it, so the few tests that need the difference name
+     * the port -- the same reasoning AwsSdkTest sets out at greater length.
      */
     private static final int LOCALSTACK_PORT = 4566;
-    private static final int MINISTACK_PORT = 4567;
     /** The port Azurite's blob service listens on in the Azurite lanes. */
     private static final int AZURITE_PORT = 10000;
 
@@ -504,9 +502,6 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testListVersionsResumesAfterADeletedVersion() {
-        // MiniStack skips the rest of the key when the version its marker
-        // names is gone, ministackorg/ministack#2784.
-        assumeTrue(!isEmulator(MINISTACK_PORT));
         enableVersioning();
         put("blob", FIRST);
         String second = put("blob", SECOND);
@@ -626,10 +621,6 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteJudgesTheVersionItNames() {
-        // MiniStack judges a condition naming a version against the current
-        // version and deletes the one named, where S3 answers 501 and the
-        // test skips itself, ministackorg/ministack#2785.
-        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         assumeVersionedConditionalDeletes();
@@ -662,10 +653,6 @@ public final class VersionedBlobStoreTest {
     /** The same, for the conditions a batch delete carries per key. */
     @Test
     public void testBatchConditionalDeleteJudgesTheVersionItNames() {
-        // MiniStack judges a condition naming a version against the current
-        // version and deletes the one named, where S3 answers 501 and the
-        // test skips itself, ministackorg/ministack#2785.
-        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         assumeVersionedConditionalDeletes();
@@ -707,10 +694,6 @@ public final class VersionedBlobStoreTest {
      */
     @Test
     public void testConditionalDeleteRemovesADeleteMarker() {
-        // MiniStack judges a condition naming a version against the current
-        // version and deletes the one named, where S3 answers 501 and the
-        // test skips itself, ministackorg/ministack#2785.
-        assumeTrue(!isEmulator(MINISTACK_PORT));
         assumeConditionalDeletes();
         enableVersioning();
         assumeVersionedConditionalDeletes();
