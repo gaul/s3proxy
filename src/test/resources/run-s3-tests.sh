@@ -4,8 +4,8 @@ set -o errexit
 set -o nounset
 
 # Optional first argument selects a config; remaining args pass through to pytest via tox.
-# Example single test: ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf \
-#     s3tests_boto3/functional/test_s3.py::test_bucket_list_delimiter_prefix
+# Example single test: ./src/test/resources/run-s3-tests.sh s3proxy-ministack.conf \
+#     s3tests/functional/test_s3.py::test_bucket_list_delimiter_prefix
 S3PROXY_CONF="s3proxy.conf"
 if (($# > 0)) && [[ "$1" == *.conf ]]; then
     S3PROXY_CONF="$1"
@@ -156,8 +156,6 @@ use_created_kms_keys() {
 }
 
 backend=""
-# A -k expression for tests a marker cannot describe, empty for most lanes.
-deselect_by_name=""
 if [ "${S3PROXY_CONF}" = "s3proxy-azurite.conf" ]; then
     backend="azureblob"
 elif [ "${S3PROXY_CONF}" = "s3proxy-azurite-versioning.conf" ]; then
@@ -176,53 +174,25 @@ elif [ "${S3PROXY_CONF}" = "s3proxy-fake-gcs-server.conf" ]; then
 elif [ "${S3PROXY_CONF}" = "s3proxy-swift.conf" ]; then
     backend="swift"
 elif [[ "${S3PROXY_CONF}" == s3proxy-ministack*.conf ]]; then
-    # MiniStack reaches the same aws-s3 backend as the LocalStack lane, but
-    # it is a different emulator and does not share every gap that lane's
-    # markers record, so it answers to markers of its own.  The glob takes a
-    # conf of one's own as well, for a MiniStack reached somewhere else.
+    # The aws-s3 backend reached through MiniStack.  The glob takes a conf of
+    # one's own as well, for a MiniStack reached somewhere else.
     backend="ministack"
-    # Versioning and server-side encryption pass through to a service that
-    # has both, as they do on the LocalStack lane.
-    tags="${tags/ and not versioning/}"
-    enable_sse_tests
-    use_created_kms_keys
-    # Object lock passes through as well, and MiniStack keeps the locks,
-    # with the gaps its markers record.
-    tags="${tags/ and not object_lock/}"
-elif [[ "${S3PROXY_CONF}" == s3proxy-localstack*.conf ]]; then
-    backend="localstack"
-    # fails_on_aws marks what real S3 refuses, and this lane used to deselect
-    # the tag on the reasoning that LocalStack emulates S3.  It is more
-    # permissive than S3 in places, though, so a good number of them pass;
-    # the markers record the ones that do not.  Deselecting the tag hid the
-    # conditional writes that only this lane sends to a service that answers
-    # them natively.
+    # fails_on_aws marks what real S3 refuses, and is not deselected here:
+    # the emulator is more permissive than S3 in places, so a good number of
+    # them pass, and the markers record the ones that do not.
     # The aws-s3 backend passes versioning through to a service that has it,
     # so run the tests for it here as well as on the transient lane.  This is
     # the only lane that covers the pass-through path.
     tags="${tags/ and not versioning/}"
-    # The same goes for server-side encryption: LocalStack encrypts, so the
-    # SSE tests exercise the pass-through here rather than watching a
-    # store that cannot encrypt refuse it.
+    # The same goes for server-side encryption: MiniStack encrypts, so the
+    # SSE tests exercise the pass-through here rather than watching a store
+    # that cannot encrypt refuse it.
     enable_sse_tests
     use_created_kms_keys
-    # Object lock passes through as well, and LocalStack keeps the locks.
-    # This lane and MiniStack's are the ones that run the tag: the other
-    # stores answer the lock 501.
+    # Object lock passes through as well, and MiniStack keeps the locks.
+    # This is the one lane that runs the tag: the other stores answer the
+    # lock 501.
     tags="${tags/ and not object_lock/}"
-    # Five threads delete the same versions at once and each expects to have
-    # deleted them all.  LocalStack refuses a version it no longer has, where
-    # S3 counts deleting one that is already gone as a success -- so whether
-    # this passes depends on whether the threads overlap.  Neither expecting
-    # a pass nor expecting a failure describes it, which is what a marker
-    # would have to do.
-    #
-    # LocalStack refuses a CopyObject whose If-Match fails, 412, and on an
-    # unversioned bucket overwrites the destination's content anyway, as it
-    # does when asked directly.  The parametrized test passes on a versioned
-    # bucket and fails on the other, which one marker cannot say either.
-    deselect_by_name="not test_versioning_concurrent_multi_object_delete"
-    deselect_by_name+=" and not test_copy_object_dest_if_match"
 elif [ "${S3PROXY_CONF}" = "s3proxy-filesystem.conf" ] ||
         [ "${S3PROXY_CONF}" = "s3proxy.conf" ]; then
     # s3proxy.conf defaults to the transient backend.
@@ -252,13 +222,8 @@ fi
 # which some terminals and CI runners set -- makes tox reject its own
 # arguments.
 pushd s3-tests
-deselect_args=()
-if [ -n "${deselect_by_name}" ]; then
-    deselect_args=(-k "${deselect_by_name}")
-fi
 rc=0
 env -u FORCE_COLOR tox -- -m "${tags}" --s3proxy-backend="${backend}" \
-        ${deselect_args[@]+"${deselect_args[@]}"} \
         --junitxml="${S3PROXY_JUNIT_XML}" \
         ${TOX_TEST_ARGS[@]+"${TOX_TEST_ARGS[@]}"} || rc=$?
 popd

@@ -339,76 +339,11 @@ jobs:
           name: s3-tests-results-${{ matrix.conf }}
           path: target/s3-tests-*.xml
 
-  localstackTests:
-    runs-on: ubuntu-26.04-arm
-    timeout-minutes: 20
-    needs: [meta]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: "recursive"
-      - uses: actions/setup-java@v6.3.0
-        with:
-          distribution: "temurin"
-          java-version: "25"
-          cache: "maven"
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Maven Package
-        run: |
-          mvn package -DskipTests
-
-      - name: Install LocalStack
-        run: docker pull localstack/localstack:4.14.0
-      - name: Start LocalStack
-        run: |
-          docker run -d --name localstack -p 4566:4566 localstack/localstack:4.14.0
-          # Wait for LocalStack to be ready.  Its health endpoint answers
-          # before s3 is listed, so wait-for-url.sh is not enough here.
-          for i in $(seq 30); do
-            if curl -s http://127.0.0.1:4566/_localstack/health | grep -q '"s3"'; then
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "LocalStack did not offer s3 within 30 seconds" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Maven Test with LocalStack
-        run: |
-          mvn test -Ds3proxy.test.conf=s3proxy-localstack.conf
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: surefire-reports-localstack
-          path: target/surefire-reports/
-
-      - name: Install s3-tests
-        run: |
-          python -m pip install --upgrade pip
-          pip install tox
-      - name: Run s3-tests with LocalStack
-        run: |
-          ./src/test/resources/run-s3-tests.sh s3proxy-localstack.conf
-          docker stop localstack
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: s3-tests-results-localstack
-          path: target/s3-tests-*.xml
-
-  # MiniStack is a second S3-compatible emulator behind the same aws-s3
-  # backend the LocalStack lane uses.  It answers a good deal that LocalStack
-  # does not -- server-side encryption, conditional writes, versioning edges
-  # -- so running both keeps the backend honest against two services rather
-  # than one, and each carries its own markers.  It is published on 4567
-  # rather than its own 4566 because AwsSdkTest reads 4566 as LocalStack and
-  # would credit this emulator with LocalStack's gaps.
+  # MiniStack is the S3-compatible emulator behind the aws-s3 backend: the
+  # lane that covers the pass-through path, versioning, server-side
+  # encryption, conditional writes and object lock included.  It is published
+  # on 4567 rather than its own 4566, the port LocalStack, which this lane
+  # replaced, also answers to.
   ministackTests:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
@@ -650,7 +585,7 @@ jobs:
   Containerize:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 20
-    needs: [runTests, filesystemTests, azuriteTests, localstackTests, ministackTests, fakeGcsServerTests, swiftTests, meta]
+    needs: [runTests, filesystemTests, azuriteTests, ministackTests, fakeGcsServerTests, swiftTests, meta]
     permissions:
       contents: read
       packages: write

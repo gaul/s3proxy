@@ -5155,8 +5155,8 @@ public class S3ProxyHandler {
         // Vet what any request may say against itself: an algorithm S3
         // does not have, or a KMS key under an algorithm that does not
         // name one, is malformed wherever it lands.  S3 refuses both and
-        // LocalStack accepts them, so the pass-through lane needs the
-        // refusal here to answer as S3 does.
+        // LocalStack accepts them, so the pass-through needs the refusal
+        // here to answer as S3 does in front of every service.
         String algorithm = request.getHeader(
                 AwsHttpHeaders.SERVER_SIDE_ENCRYPTION);
         boolean kms = algorithm != null && algorithm.startsWith("aws:kms");
