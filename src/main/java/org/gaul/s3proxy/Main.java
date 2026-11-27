@@ -214,10 +214,13 @@ public final class Main {
             s3ProxyBuilder = s3ProxyBuilder2;
         }
 
+        var telemetry = S3Proxy.Telemetry.create();
         S3Proxy s3Proxy;
         try {
-            s3Proxy = requireNonNull(s3ProxyBuilder).build();
+            s3Proxy = requireNonNull(s3ProxyBuilder)
+                    .openTelemetry(telemetry).build();
         } catch (IllegalArgumentException | IllegalStateException e) {
+            telemetry.close();
             System.err.println(e.getMessage());
             System.exit(1);
             throw e;
@@ -234,6 +237,7 @@ public final class Main {
         try {
             s3Proxy.start();
         } catch (Exception e) {
+            telemetry.close();
             System.err.println(e.getMessage());
             System.exit(1);
         }
@@ -247,6 +251,8 @@ public final class Main {
             } catch (Exception e) {
                 System.err.println("Error during shutdown: " +
                         e.getMessage());
+            } finally {
+                telemetry.close();
             }
         }, "s3proxy-shutdown"));
     }

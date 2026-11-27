@@ -279,6 +279,28 @@ durations and the bytes received and sent, by S3 operation, bucket, and
 status.  Set `s3proxy.metrics.enabled=true`; the wiki has
 [details](https://github.com/gaul/s3proxy/wiki/Metrics).
 
+## OpenTelemetry tracing
+
+Export inbound S3 request traces without a Java agent (disabled by default):
+
+```sh
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+The service name defaults to `s3proxy`; override it with `OTEL_SERVICE_NAME`.
+Equivalent `-Dotel.*` JVM properties are supported.
+
+Spans use S3 operation names. URL paths and queries are redacted; authentication
+headers are not captured. Backend spans and log capture need separate instrumentation.
+
+Set `OTEL_METRICS_EXPORTER=otlp` for standard HTTP metrics. Existing Prometheus
+metrics and console logging are unchanged.
+
+Embedded applications can use `S3Proxy.builder().openTelemetry(openTelemetry)`
+and retain ownership of the SDK lifecycle.
+
 ## CORS
 
 S3Proxy has basic CORS preflight and actual request/response handling. It can be configured within the properties

@@ -27,7 +27,9 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.regex.Matcher;
@@ -38,6 +40,17 @@ import javax.net.ssl.SSLContext;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
+import io.opentelemetry.instrumentation.servlet.v5_0.ServletTelemetry;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
+import io.opentelemetry.semconv.UrlAttributes;
+
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
+
+import org.eclipse.jetty.ee10.servlet.FilterHolder;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
 import org.eclipse.jetty.http.HttpCompliance;
@@ -219,13 +232,16 @@ public final class S3Proxy {
                 builder.ignoreUnknownHeaders, builder.corsRules,
                 builder.servicePath, builder.maximumTimeSkew, metrics,
                 builder.stsEnabled ?
-                        new StsHandler(builder.stsMaxDuration) : null);
+                    new StsHandler(builder.stsMaxDuration) : null);
         handler.getHandler().setPreAuthBodyBudget(new PreAuthBodyBudget(
                 builder.preAuthBodyBudget >= 0 ? builder.preAuthBodyBudget :
                         Math.max(Runtime.getRuntime().maxMemory() / 4,
                                 builder.v4MaxNonChunkedRequestSize)));
 
         var context = new ServletContextHandler();
+        context.addFilter(new FilterHolder(Telemetry.createFilter(
+                builder.openTelemetry)), "/*",
+            EnumSet.of(DispatcherType.REQUEST));
         if (builder.servicePath != null && !builder.servicePath.isEmpty()) {
             context.setContextPath(builder.servicePath);
         }
@@ -329,6 +345,31 @@ public final class S3Proxy {
         }
     }
 
+    static final class Telemetry {
+        private Telemetry() {
+        }
+
+        static Filter createFilter(OpenTelemetry openTelemetry) {
+            return ServletTelemetry.builder(openTelemetry)
+                .addAttributesExtractor(AttributesExtractor.constant(
+                    UrlAttributes.URL_PATH, ""))
+                .addAttributesExtractor(AttributesExtractor.constant(
+                    UrlAttributes.URL_QUERY, ""))
+                .build().createFilter();
+        }
+
+        static OpenTelemetrySdk create() {
+            return AutoConfiguredOpenTelemetrySdk.builder()
+                    .addPropertiesSupplier(() -> Map.of(
+                            "otel.service.name", "s3proxy",
+                            "otel.traces.exporter", "none",
+                            "otel.metrics.exporter", "none",
+                            "otel.logs.exporter", "none"))
+                    .disableShutdownHook()
+                    .build().getOpenTelemetrySdk();
+        }
+    }
+
     public static final class Builder {
         // A dot that no quantifier follows.  The first two alternatives
         // consume \Q...\E quotations and escaped characters, whose dots are
@@ -364,6 +405,7 @@ public final class S3Proxy {
         private boolean metricsEnabled;
         private int metricsPort = -1;
         @Nullable private String metricsHost;
+        private OpenTelemetry openTelemetry = OpenTelemetry.noop();
         private long stopTimeout = STOP_TIMEOUT_MS;
         private boolean stsEnabled;
         private Duration stsMaxDuration = StsHandler.MAX_DURATION;
@@ -790,6 +832,12 @@ public final class S3Proxy {
 
         public Builder metricsHost(String metricsHost) {
             this.metricsHost = metricsHost;
+            return this;
+        }
+
+        /** Sets caller-owned telemetry, which stopping S3Proxy does not close. */
+        public Builder openTelemetry(OpenTelemetry openTelemetry) {
+            this.openTelemetry = requireNonNull(openTelemetry);
             return this;
         }
 

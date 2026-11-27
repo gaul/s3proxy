@@ -26,6 +26,8 @@ import com.google.common.base.Throwables;
 import com.google.common.io.CountingInputStream;
 import com.google.common.net.HttpHeaders;
 
+import io.opentelemetry.api.trace.Span;
+
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -79,8 +81,8 @@ final class S3ProxyHandlerJetty extends HttpServlet {
     protected void service(HttpServletRequest request,
             HttpServletResponse response)
             throws IOException {
-        long startNanos = System.nanoTime();
         var ctx = new S3ProxyHandler.RequestContext();
+        long startNanos = System.nanoTime();
 
         // Counted so that the drain after the response knows how much of the
         // body is left; see S3ProxyHandler.drainUnreadBody.
@@ -154,6 +156,11 @@ final class S3ProxyHandlerJetty extends HttpServlet {
                 throw throwable;
             }
         } finally {
+            var operation = ctx.getOperation();
+            if (operation != null) {
+                Span.current().updateName(operation.getValue())
+                        .setAttribute("s3.operation", operation.getValue());
+            }
             traceResponse(response);
             recordMetrics(request, response, ctx, startNanos);
         }
