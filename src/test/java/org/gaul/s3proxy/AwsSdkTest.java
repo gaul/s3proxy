@@ -140,15 +140,6 @@ public final class AwsSdkTest {
 
     private static final ByteSource BYTE_SOURCE = ByteSource.wrap(new byte[1]);
     private static final long MINIMUM_MULTIPART_SIZE = 5 * 1024 * 1024;
-    /**
-     * LocalStack's port, and the only thing that tells it apart from the
-     * other emulators reached through the aws-s3 provider.  Several
-     * conditional operations below are answered by S3 and refused by
-     * LocalStack, so an emulator that answers them is given a port of its
-     * own -- MiniStack's lane publishes 4567 -- and this stays a test for
-     * LocalStack rather than a test for whoever holds 4566.
-     */
-    private static final int LOCALSTACK_PORT = 4566;
     private static final String ALL_USERS_GROUP =
             "http://acs.amazonaws.com/groups/global/AllUsers";
 
@@ -156,7 +147,6 @@ public final class AwsSdkTest {
     private URI s3EndpointUri;
     private S3Proxy s3Proxy;
     private BlobStore blobStore;
-    private URI blobStoreEndpoint;
     private String blobStoreType;
     private String containerName;
     private AwsBasicCredentials awsCreds;
@@ -179,8 +169,6 @@ public final class AwsSdkTest {
         containerName = createRandomContainerName();
         info.getBlobStore().createContainer(containerName);
 
-        blobStoreEndpoint = URI.create(info.getProperties().getProperty(
-                Constants.PROPERTY_ENDPOINT, "http://stub"));
         blobStoreType = info.getProperties().getProperty(
                 Constants.PROPERTY_PROVIDER, "");
     }
@@ -1007,11 +995,9 @@ public final class AwsSdkTest {
      * Whether the backend offers a conditional delete naming an ETag:
      * aws-s3 evaluates it on the backend and the nio2 stores compare
      * against their own metadata, except sftp which persists no ETag.
-     * LocalStack accepts the request and answers NotImplemented itself.
      */
     private boolean supportsIfMatchDeletes() {
-        return (blobStoreType.equals("aws-s3") &&
-                blobStoreEndpoint.getPort() != LOCALSTACK_PORT) ||
+        return blobStoreType.equals("aws-s3") ||
                 blobStoreType.equals("azureblob") ||
                 blobStoreType.equals("filesystem") ||
                 blobStoreType.equals("transient");
@@ -1380,14 +1366,12 @@ public final class AwsSdkTest {
      * Whether the backend resolves a conditional CompleteMultipartUpload.
      * GCS compose can only require that the target be absent and Swift's
      * manifest PUT honours only If-None-Match: *, so neither can answer a
-     * condition naming an ETag and s3proxy refuses; LocalStack accepts the
-     * request and answers NotImplemented itself.
+     * condition naming an ETag and s3proxy refuses.
      */
     private boolean supportsConditionalComplete() {
         return !blobStoreType.equals("google-cloud-storage") &&
                 !blobStoreType.equals("openstack-swift") &&
-                !blobStoreType.equals("sftp") &&
-                blobStoreEndpoint.getPort() != LOCALSTACK_PORT;
+                !blobStoreType.equals("sftp");
     }
 
     @Test
@@ -1714,10 +1698,8 @@ public final class AwsSdkTest {
      */
     @Test
     public void testIfMatchSettlesIfUnmodifiedSince() throws Exception {
-        // Azure is sent both conditions and requires both, and so does
-        // LocalStack, whose answer the aws-s3 store relays.
+        // Azure is sent both conditions and requires both.
         assumeTrue(!blobStoreType.equals("azureblob"));
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         String key = "testIfMatchSettlesIfUnmodifiedSince";
         String eTag = client.putObject(b -> b.bucket(containerName).key(key),
                 RequestBody.fromString("content")).eTag();
@@ -3141,9 +3123,8 @@ public final class AwsSdkTest {
 
     @Test
     public void testContainerCreateDelete() throws Exception {
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         // In us-east-1 S3 answers 200 to creating a bucket the caller
-        // already owns, and LocalStack and MiniStack follow it; elsewhere
+        // already owns, and MiniStack follows it; elsewhere
         // it answers BucketAlreadyOwnedByYou, as S3Proxy's own stores do.
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
         assumeTrue(!blobStoreType.equals("aws-s3"));
@@ -3408,12 +3389,6 @@ public final class AwsSdkTest {
      */
     @Test
     public void testBlobListV2StartAfterCommonPrefix() throws Exception {
-        // LocalStack measures start-after against the keys rolled up behind
-        // the prefix rather than the prefix it reported, so it hands back
-        // the group the caller has just paged past.  Its own list-objects
-        // marker skips that group, as S3 does.
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-
         putBlob(containerName, "boo/bar", BYTE_SOURCE);
         putBlob(containerName, "boo/baz", BYTE_SOURCE);
         putBlob(containerName, "cquux/thud", BYTE_SOURCE);
@@ -4065,14 +4040,10 @@ public final class AwsSdkTest {
      * If-Match and If-None-Match on a copy guard the destination, in the
      * forms S3 takes: an If-Match naming an ETag and If-None-Match: *.  The
      * stores that judge them natively and the two nio2 stores the frontend
-     * judges for are covered; the rest refuse the request.  LocalStack is
-     * left out because it gets this wrong itself: it refuses the copy and
-     * overwrites the destination all the same.
+     * judges for are covered; the rest refuse the request.
      */
     @Test
     public void testCopyObjectDestinationConditions() throws Exception {
-        assumeTrue(!blobStoreType.equals("aws-s3") ||
-                blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
         assumeTrue(Quirks.NATIVE_CONDITIONAL_COPY.contains(blobStoreType) ||
                 Quirks.NATIVE_IF_NONE_MATCH.contains(blobStoreType));
         String source = "testCopyObjectDestinationConditions-source";
@@ -4747,11 +4718,6 @@ public final class AwsSdkTest {
      */
     @Test
     public void testUploadPartBadDigestKeepsEarlierPart() throws Exception {
-        // LocalStack refuses the part and still leaves an empty one in
-        // place of the earlier part, when the part arrives as the SDK
-        // streams it.
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
-
         String blobName = "upload-part-bad-digest";
         String uploadId = client.createMultipartUpload(b -> b
                 .bucket(containerName).key(blobName)).uploadId();
@@ -4941,7 +4907,7 @@ public final class AwsSdkTest {
         // prefix does not advance its next key marker: a page that ends in
         // one names the last upload before it, or none at all, so the prefix
         // comes again on the next page, and at one entry a page S3 never
-        // gets past it.  LocalStack and MiniStack do the same.  The other
+        // gets past it.  MiniStack does the same.  The other
         // stores list each prefix once and resume after it.
         boolean pagesPrefixes = !blobStoreType.equals("aws-s3");
         for (String key : List.of("a", "dir/x", "dir/y", "dir/sub/z", "e",
@@ -5445,9 +5411,6 @@ public final class AwsSdkTest {
         // 304 Not Modified.  Real S3 and Swift evaluate the wildcard natively;
         // google-cloud-storage, azureblob, and the nio2 backends
         // emulate the conditional inside s3proxy, which this also exercises.
-        // LocalStack does not implement the If-Match/If-None-Match "*"
-        // wildcard, returning 412 where real S3 returns 200/304.
-        assumeTrue(blobStoreEndpoint.getPort() != LOCALSTACK_PORT);
 
         String blobName = "blob-name";
         client.putObject(b -> b.bucket(containerName).key(blobName),
@@ -5474,7 +5437,7 @@ public final class AwsSdkTest {
     @Test
     public void testConditionalHeadWildcard() throws Exception {
         // As testConditionalGetWildcard, for the read that fetches only
-        // metadata.  No backend is excluded here, LocalStack included:
+        // metadata.  No backend is excluded here:
         // s3proxy settles a HEAD's conditions itself and never passes them
         // down, so the answer is its own whatever the store would have said.
         String blobName = "blob-name";

@@ -72,12 +72,6 @@ public final class VersionedBlobStoreTest {
     private static final byte[] SECOND = "second".getBytes(
             StandardCharsets.UTF_8);
 
-    /**
-     * The port the LocalStack lane publishes.  LocalStack answers most of
-     * S3 but not all of it, so the few tests that need the difference name
-     * the port -- the same reasoning AwsSdkTest sets out at greater length.
-     */
-    private static final int LOCALSTACK_PORT = 4566;
     /** The port Azurite's blob service listens on in the Azurite lanes. */
     private static final int AZURITE_PORT = 10000;
 
@@ -124,12 +118,6 @@ public final class VersionedBlobStoreTest {
 
         containerName = "container-" + new Random().nextInt(Integer.MAX_VALUE);
         blobStore.createContainer(containerName);
-    }
-
-    /** Whether the backend is the emulator holding {@code port}. */
-    private boolean isEmulator(int port) {
-        return blobStoreType.equals("aws-s3") &&
-                blobStoreEndpoint.getPort() == port;
     }
 
     /**
@@ -447,9 +435,6 @@ public final class VersionedBlobStoreTest {
 
     @Test
     public void testCopyCanNameASourceVersion() {
-        // LocalStack reads a copy that names a source version as a copy
-        // onto itself and refuses it.
-        assumeTrue(!isEmulator(LOCALSTACK_PORT));
         // Azurite refuses the SAS for one blob version (sr=bv) that the
         // azureblob store signs the copy source with, which Azure accepts.
         assumeTrue(!isAzurite());
